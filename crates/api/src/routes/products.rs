@@ -7,9 +7,10 @@ use crate::{
 use atlas_domain::catalog::{creates_cycle, unit_cost, Node};
 use axum::{
     extract::{Path, Query, State},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
+use serde_json::{json, Map, Value};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, Postgres, Transaction};
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(list).post(create))
         .route("/{id}", get(one).put(update).delete(remove))
         .route("/{id}/copy", post(copy))
+        .route("/batch", patch(batch_edit))
 }
 
 const SELECT_PRODUCTS: &str = "SELECT p.id, p.name, p.is_service, p.is_composite, p.production_type, p.hidden_in_new_sale, \
@@ -164,7 +166,7 @@ pub async fn cost_nodes(pool: &sqlx::PgPool, org_id: Uuid) -> AppResult<HashMap<
     Ok(map)
 }
 
-async fn fetch_views(
+pub async fn fetch_views(
     s: &AppState,
     ctx: &AuthContext,
     search: Option<String>,
@@ -255,7 +257,7 @@ fn price_ok(v: f64) -> bool {
 }
 
 /// Нормализация и проверка входных данных без обращения к БД.
-fn normalize(dto: &mut ProductDto) -> AppResult<()> {
+pub fn normalize(dto: &mut ProductDto) -> AppResult<()> {
     dto.name = dto.name.trim().to_string();
     if dto.name.is_empty() {
         return Err(AppError::BadRequest("Введите название".into()));
@@ -295,7 +297,7 @@ fn normalize(dto: &mut ProductDto) -> AppResult<()> {
 }
 
 /// Проверки, требующие БД; пишет товар и связанные строки внутри транзакции.
-async fn save(
+pub async fn save(
     tx: &mut Transaction<'_, Postgres>,
     pool: &sqlx::PgPool,
     org_id: Uuid,
@@ -525,6 +527,120 @@ async fn copy(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>)
     save(&mut tx, &s.pool, ctx.org_id, new_id, &dto, true).await?;
     tx.commit().await?;
     one(State(s), ctx, Path(new_id)).await
+}
+
+fn view_to_dto(v: ProductView) -> ProductDto {
+    ProductDto {
+        name: v.name,
+        is_service: v.is_service,
+        is_composite: v.is_composite,
+        production_type: Some(v.production_type),
+        hidden_in_new_sale: v.hidden_in_new_sale,
+        purchase_price: v.purchase_price,
+        extra_cost: v.extra_cost,
+        category_id: v.category_id,
+        supplier_id: v.supplier_id,
+        unit_id: v.unit_id,
+        barcodes: v.barcodes,
+        allow_fractional: v.allow_fractional,
+        important: v.important,
+        stock_threshold: v.stock_threshold,
+        stores: v.stores,
+        ingredients: v.ingredients.into_iter().map(|i| IngredientDto { product_id: i.product_id, qty: i.qty }).collect(),
+    }
+}
+
+fn opt_uuid(v: &Value, key: &str) -> AppResult<Option<Uuid>> {
+    match v {
+        Value::Null => Ok(None),
+        Value::String(s) => Uuid::parse_str(s).map(Some).map_err(|_| AppError::BadRequest(format!("Некорректный идентификатор в поле «{key}»"))),
+        _ => Err(AppError::BadRequest(format!("Некорректное значение поля «{key}»"))),
+    }
+}
+
+fn num(v: &Value, key: &str) -> AppResult<f64> {
+    v.as_f64().ok_or_else(|| AppError::BadRequest(format!("Поле «{key}» должно быть числом")))
+}
+
+/// Применяет частичное изменение товара: только присутствующие поля (null у категории/поставщика/единицы очищает значение).
+fn apply_patch(dto: &mut ProductDto, p: &Map<String, Value>) -> AppResult<()> {
+    for (key, val) in p {
+        match key.as_str() {
+            "id" => {}
+            "name" => dto.name = val.as_str().ok_or_else(|| AppError::BadRequest("Название должно быть строкой".into()))?.to_string(),
+            "barcodes" => {
+                dto.barcodes = val
+                    .as_array()
+                    .ok_or_else(|| AppError::BadRequest("Штрихкоды должны быть массивом".into()))?
+                    .iter()
+                    .map(|b| b.as_str().map(str::to_string).ok_or_else(|| AppError::BadRequest("Штрихкод должен быть строкой".into())))
+                    .collect::<AppResult<_>>()?
+            }
+            "categoryId" => dto.category_id = opt_uuid(val, key)?,
+            "supplierId" => dto.supplier_id = opt_uuid(val, key)?,
+            "unitId" => dto.unit_id = opt_uuid(val, key)?,
+            "purchasePrice" => dto.purchase_price = num(val, key)?,
+            "extraCost" => dto.extra_cost = num(val, key)?,
+            "hiddenInNewSale" => {
+                dto.hidden_in_new_sale = val.as_bool().ok_or_else(|| AppError::BadRequest("Поле «hiddenInNewSale» должно быть логическим".into()))?
+            }
+            "stores" => {
+                for st in val.as_array().ok_or_else(|| AppError::BadRequest("Филиалы должны быть массивом".into()))? {
+                    let store_id = opt_uuid(&st["storeId"], "storeId")?.ok_or_else(|| AppError::BadRequest("Не указан филиал".into()))?;
+                    let idx = match dto.stores.iter().position(|x| x.store_id == store_id) {
+                        Some(i) => i,
+                        None => {
+                            dto.stores.push(StorePrice { store_id, active: true, sale_price: 0.0 });
+                            dto.stores.len() - 1
+                        }
+                    };
+                    if let Some(a) = st.get("active") {
+                        dto.stores[idx].active = a.as_bool().ok_or_else(|| AppError::BadRequest("Поле «active» должно быть логическим".into()))?;
+                    }
+                    if let Some(pr) = st.get("salePrice") {
+                        dto.stores[idx].sale_price = num(pr, "salePrice")?;
+                    }
+                }
+            }
+            other => return Err(AppError::BadRequest(format!("Поле «{other}» нельзя менять массово"))),
+        }
+    }
+    Ok(())
+}
+
+/// Массовое редактирование: `{"items":[{"id":…, <поля>}]}`; применяется всё или ничего.
+async fn batch_edit(State(s): State<AppState>, ctx: AuthContext, Json(body): Json<Value>) -> AppResult<Json<Value>> {
+    ctx.require("product.view")?;
+    let items = body.get("items").and_then(Value::as_array).ok_or_else(|| AppError::BadRequest("Ожидается список «items»".into()))?;
+    if items.is_empty() {
+        return Err(AppError::BadRequest("Нет изменений для сохранения".into()));
+    }
+    let mut seen = std::collections::HashSet::new();
+    let mut tx = s.pool.begin().await?;
+    for (i, item) in items.iter().enumerate() {
+        let n = i + 1;
+        let wrap = |e: AppError| match e {
+            AppError::BadRequest(m) => AppError::BadRequest(format!("Строка {n}: {m}")),
+            AppError::Conflict(m) => AppError::Conflict(format!("Строка {n}: {m}")),
+            other => other,
+        };
+        let obj = item.as_object().ok_or_else(|| wrap(AppError::BadRequest("Ожидается объект".into())))?;
+        let id = opt_uuid(item.get("id").unwrap_or(&Value::Null), "id").map_err(wrap)?.ok_or_else(|| wrap(AppError::BadRequest("Не указан товар".into())))?;
+        if !seen.insert(id) {
+            return Err(wrap(AppError::BadRequest("Товар указан дважды".into())));
+        }
+        let view = fetch_views(&s, &ctx, None, None, Some(id), None, true)
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| wrap(AppError::NotFound("Товар не найден".into())))?;
+        let mut dto = view_to_dto(view);
+        apply_patch(&mut dto, obj).map_err(wrap)?;
+        normalize(&mut dto).map_err(wrap)?;
+        save(&mut tx, &s.pool, ctx.org_id, id, &dto, false).await.map_err(wrap)?;
+    }
+    tx.commit().await?;
+    Ok(Json(json!({ "updated": items.len() })))
 }
 
 async fn remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>) -> AppResult<Json<serde_json::Value>> {

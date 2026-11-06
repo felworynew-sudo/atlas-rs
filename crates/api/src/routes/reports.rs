@@ -91,7 +91,7 @@ async fn scope(pool: &PgPool, ctx: &AuthContext, q: &ReportQuery) -> AppResult<S
     Ok(Scope { stores, from, to })
 }
 
-fn csv_response(name: &str, rows: Vec<Vec<String>>) -> Response {
+pub fn csv_response(name: &str, rows: Vec<Vec<String>>) -> Response {
     let esc = |f: &str| {
         if f.contains([',', '"', '\n', ';']) {
             format!("\"{}\"", f.replace('"', "\"\""))

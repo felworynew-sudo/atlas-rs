@@ -205,6 +205,8 @@ pub struct CreateSaleDto {
     pub delivery_price: Option<f64>,
     /// заказ клиента, из которого создана продажа
     pub order_id: Option<Uuid>,
+    /// партия импорта (`POST /api/import/sales`)
+    pub import_batch_id: Option<Uuid>,
 }
 
 struct Line {
@@ -445,9 +447,9 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
         "INSERT INTO sales (id, organization_id, store_id, user_id, client_id, purchase_method_id, payment_method_id, \
          second_payment_method_id, first_payment_value, second_payment_value, subtotal, markup_amount, discount_amount, \
          discount_percentage, bonus_reduction, bonus_accumulation, total, cost_total, delivery, comment, idempotency_key, sale_date, \
-         punch_card_reduction, punch_delta, delivery_address, delivery_phone, delivery_price, order_id) \
+         punch_card_reduction, punch_delta, delivery_address, delivery_phone, delivery_price, order_id, import_batch_id) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::float8,$10::float8,$11::float8,$12::float8,$13::float8,$14::float8,$15::float8,\
-         $16::float8,$17::float8,$18::float8,$19,$20,$21,COALESCE($22, now()),$23::float8,$24,$25,$26,$27::float8,$28)",
+         $16::float8,$17::float8,$18::float8,$19,$20,$21,COALESCE($22, now()),$23::float8,$24,$25,$26,$27::float8,$28,$29)",
     )
     .bind(sale_id)
     .bind(ctx.org_id)
@@ -477,6 +479,7 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
     .bind(dto.delivery_phone.unwrap_or_default())
     .bind(t.delivery_fee)
     .bind(dto.order_id)
+    .bind(dto.import_batch_id)
     .execute(&mut *tx)
     .await?;
 
@@ -528,7 +531,7 @@ async fn created_view(pool: &PgPool, org: Uuid, id: Uuid) -> AppResult<Json<Sale
         .ok_or_else(|| AppError::NotFound("Продажа не найдена".into()))
 }
 
-async fn remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
+pub async fn remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     ctx.require("sale.delete")?;
     let mut tx = s.pool.begin().await?;
     let sale: Option<(Uuid, Option<Uuid>, f64, f64, i32)> = sqlx::query_as(
