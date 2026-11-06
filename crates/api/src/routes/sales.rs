@@ -8,7 +8,7 @@ use crate::{
 };
 use atlas_domain::{
     catalog::unit_cost,
-    sale::{refund_amount, round2, split_ok, stock_effects, totals, Discount, TotalsInput, DEFAULT_CASHBACK_PERCENT},
+    sale::{punch_card, refund_amount, round2, split_ok, stock_effects, totals, Discount, TotalsInput, DEFAULT_CASHBACK_PERCENT},
 };
 use axum::{
     extract::{Path, Query, State},
@@ -65,6 +65,11 @@ pub struct SaleView {
     pub delivery: bool,
     pub comment: String,
     pub sale_date: DateTime<Utc>,
+    pub punch_card_reduction: f64,
+    pub delivery_address: String,
+    pub delivery_phone: String,
+    pub delivery_price: f64,
+    pub order_id: Option<Uuid>,
     #[sqlx(skip)]
     pub items: Vec<SaleItemView>,
 }
@@ -75,7 +80,9 @@ const SELECT_SALES: &str = "SELECT s.id, s.store_id, s.user_id, u.name AS user_n
      s.markup_amount::float8 AS markup_amount, s.discount_amount::float8 AS discount_amount, \
      s.discount_percentage::float8 AS discount_percentage, s.bonus_reduction::float8 AS bonus_reduction, \
      s.bonus_accumulation::float8 AS bonus_accumulation, s.total::float8 AS total, s.cost_total::float8 AS cost_total, \
-     s.returned_amount::float8 AS returned_amount, s.delivery, s.comment, s.sale_date \
+     s.returned_amount::float8 AS returned_amount, s.delivery, s.comment, s.sale_date, \
+     s.punch_card_reduction::float8 AS punch_card_reduction, s.delivery_address, s.delivery_phone, \
+     s.delivery_price::float8 AS delivery_price, s.order_id \
      FROM sales s JOIN users u ON u.id = s.user_id \
      WHERE s.organization_id=$1 AND s.deleted_at IS NULL \
        AND ($2::uuid IS NULL OR s.id=$2) AND ($3::uuid IS NULL OR s.store_id=$3) \
@@ -162,7 +169,7 @@ pub async fn check_store(pool: &PgPool, ctx: &AuthContext, store_id: Uuid) -> Ap
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemDto {
     pub product_id: Option<Uuid>,
@@ -172,7 +179,7 @@ pub struct ItemDto {
     pub purchase_price: Option<f64>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateSaleDto {
     pub store_id: Uuid,
@@ -192,9 +199,16 @@ pub struct CreateSaleDto {
     pub comment: Option<String>,
     pub sale_date: Option<DateTime<Utc>>,
     pub idempotency_key: Option<String>,
+    pub delivery_address: Option<String>,
+    pub delivery_phone: Option<String>,
+    /// стоимость доставки; по умолчанию — из «Настроек продаж»
+    pub delivery_price: Option<f64>,
+    /// заказ клиента, из которого создана продажа
+    pub order_id: Option<Uuid>,
 }
 
 struct Line {
+    service: bool,
     product_id: Option<Uuid>,
     name: String,
     qty: f64,
@@ -223,7 +237,7 @@ async fn first_of_kind(pool: &PgPool, org: Uuid, kind: &str) -> AppResult<Option
     Ok(row.map(|r| r.0))
 }
 
-async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<CreateSaleDto>) -> AppResult<Json<SaleView>> {
+pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<CreateSaleDto>) -> AppResult<Json<SaleView>> {
     ctx.require("sale.new")?;
     if dto.items.is_empty() {
         return Err(AppError::BadRequest("Добавьте товар, чтобы оформить продажу".into()));
@@ -264,7 +278,7 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Cre
         }
         match it.product_id {
             Some(pid) => {
-                let (_, name, _service, fractional, active, store_price) =
+                let (_, name, service, fractional, active, store_price) =
                     pmap.get(&pid).ok_or_else(|| AppError::BadRequest("Товар не найден".into()))?;
                 if !*active {
                     return Err(AppError::BadRequest(format!("Товар «{name}» недоступен в этом филиале")));
@@ -276,7 +290,7 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Cre
                 if !(price.is_finite() && price >= 0.0) {
                     return Err(AppError::BadRequest("Цена не может быть отрицательной".into()));
                 }
-                lines.push(Line { product_id: Some(pid), name: name.clone(), qty: it.qty, price, cost: unit_cost(&costs, pid) });
+                lines.push(Line { service: *service, product_id: Some(pid), name: name.clone(), qty: it.qty, price, cost: unit_cost(&costs, pid) });
             }
             None => {
                 ctx.require("sale.custom_product")?;
@@ -286,7 +300,7 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Cre
                 if !(price.is_finite() && price >= 0.0) {
                     return Err(AppError::BadRequest("Цена не может быть отрицательной".into()));
                 }
-                lines.push(Line { product_id: None, name: name.to_string(), qty: it.qty, price, cost: it.purchase_price.unwrap_or(0.0).max(0.0) });
+                lines.push(Line { service: false, product_id: None, name: name.to_string(), qty: it.qty, price, cost: it.purchase_price.unwrap_or(0.0).max(0.0) });
             }
         }
     }
@@ -317,8 +331,20 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Cre
         None => 0.0,
     };
 
+    // настройки лояльности и продаж организации
+    let (loyalty, sale_settings): (Value, Value) =
+        sqlx::query_as("SELECT loyalty, sale_settings FROM organizations WHERE id=$1").bind(ctx.org_id).fetch_one(&s.pool).await?;
+    let cashback_on = loyalty.get("cashbackEnabled").and_then(Value::as_bool).unwrap_or(true);
+    let punch_on = loyalty.get("punchCardEnabled").and_then(Value::as_bool).unwrap_or(false);
+    let punch_capacity = loyalty.get("punchCardCapacity").and_then(Value::as_i64).unwrap_or(7) as i32;
+    let delivery_fee = if dto.delivery && sale_settings.get("deliveryPaidByCustomer").and_then(Value::as_bool).unwrap_or(true) {
+        dto.delivery_price.or_else(|| sale_settings.get("deliveryPrice").and_then(Value::as_f64)).unwrap_or(0.0).max(0.0)
+    } else {
+        0.0
+    };
+
     // скидка
-    let discount = match (dto.discount_percentage.filter(|v| *v > 0.0), dto.discount_amount.filter(|v| *v > 0.0)) {
+    let explicit = match (dto.discount_percentage.filter(|v| *v > 0.0), dto.discount_amount.filter(|v| *v > 0.0)) {
         (Some(_), Some(_)) => return Err(AppError::BadRequest("Укажите одну скидку: процент или сумму".into())),
         (Some(p), None) => {
             ctx.require("sale.apply_discount")?;
@@ -335,28 +361,68 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Cre
 
     // клиент и бонусы
     let bonus_reduction = dto.bonus_reduction.unwrap_or(0.0);
-    let (client_balance, cashback) = match dto.client_id {
+    let (client_balance, cashback, punches_before, client_discount) = match dto.client_id {
         Some(cid) => {
-            let row: Option<(f64, Option<f64>)> = sqlx::query_as(
-                "SELECT bonus_balance::float8, bonus_level::float8 FROM clients WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE",
+            let row: Option<(f64, Option<f64>, i32, Option<Uuid>)> = sqlx::query_as(
+                "SELECT bonus_balance::float8, bonus_level::float8, punch_punches, discount_id FROM clients \
+                 WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE",
             )
             .bind(cid)
             .bind(ctx.org_id)
             .fetch_optional(&mut *tx)
             .await?;
-            let (bal, level) = row.ok_or_else(|| AppError::BadRequest("Клиент не найден".into()))?;
-            let on = dto.cashback_enabled.unwrap_or(true);
-            (bal, on.then_some(level.unwrap_or(DEFAULT_CASHBACK_PERCENT)))
+            let (bal, level, punches, disc) = row.ok_or_else(|| AppError::BadRequest("Клиент не найден".into()))?;
+            let on = cashback_on && dto.cashback_enabled.unwrap_or(true);
+            (bal, on.then_some(level.unwrap_or(DEFAULT_CASHBACK_PERCENT)), punches, disc)
         }
         None => {
             if bonus_reduction > 0.0 {
                 return Err(AppError::BadRequest("Бонусы доступны только клиенту".into()));
             }
-            (0.0, None)
+            (0.0, None, 0, None)
         }
     };
-    let t = totals(&TotalsInput { subtotal, markup_percent, discount, bonus_reduction, client_balance, cashback_percent: cashback })
-        .map_err(AppError::BadRequest)?;
+    // постоянная скидка клиента действует, если скидка в чеке не задана вручную
+    let discount = match (explicit, client_discount) {
+        (Discount::None, Some(did)) => {
+            let row: Option<(Value,)> = sqlx::query_as("SELECT params FROM list_items WHERE id=$1 AND kind='discounts' AND deleted_at IS NULL")
+                .bind(did)
+                .fetch_optional(&mut *tx)
+                .await?;
+            match row {
+                Some((p,)) => {
+                    let v = p.get("value").and_then(Value::as_f64).unwrap_or(0.0);
+                    match p.get("type").and_then(Value::as_str) {
+                        Some("amount") => Discount::Amount(v.min(subtotal)),
+                        _ => Discount::Percent(v),
+                    }
+                }
+                None => Discount::None,
+            }
+        }
+        (d, _) => d,
+    };
+    // карта «N-й товар в подарок»
+    let (punch_reduction, punches_after) = if punch_on && dto.client_id.is_some() {
+        let mut units: Vec<f64> = Vec::new();
+        for l in lines.iter().filter(|l| l.product_id.is_some() && !l.service) {
+            units.extend(std::iter::repeat(l.price).take(l.qty.floor() as usize));
+        }
+        punch_card(punches_before, punch_capacity, &units)
+    } else {
+        (0.0, punches_before)
+    };
+    let t = totals(&TotalsInput {
+        subtotal,
+        markup_percent,
+        discount,
+        bonus_reduction,
+        client_balance,
+        cashback_percent: cashback,
+        delivery_fee,
+        punch_card_reduction: punch_reduction,
+    })
+    .map_err(AppError::BadRequest)?;
 
     // смешанная оплата
     let (first_value, second_value) = match dto.second_payment_method_id {
@@ -378,9 +444,10 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Cre
     sqlx::query(
         "INSERT INTO sales (id, organization_id, store_id, user_id, client_id, purchase_method_id, payment_method_id, \
          second_payment_method_id, first_payment_value, second_payment_value, subtotal, markup_amount, discount_amount, \
-         discount_percentage, bonus_reduction, bonus_accumulation, total, cost_total, delivery, comment, idempotency_key, sale_date) \
+         discount_percentage, bonus_reduction, bonus_accumulation, total, cost_total, delivery, comment, idempotency_key, sale_date, \
+         punch_card_reduction, punch_delta, delivery_address, delivery_phone, delivery_price, order_id) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::float8,$10::float8,$11::float8,$12::float8,$13::float8,$14::float8,$15::float8,\
-         $16::float8,$17::float8,$18::float8,$19,$20,$21,COALESCE($22, now()))",
+         $16::float8,$17::float8,$18::float8,$19,$20,$21,COALESCE($22, now()),$23::float8,$24,$25,$26,$27::float8,$28)",
     )
     .bind(sale_id)
     .bind(ctx.org_id)
@@ -404,6 +471,12 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Cre
     .bind(dto.comment.unwrap_or_default())
     .bind(dto.idempotency_key.filter(|k| !k.is_empty()))
     .bind(dto.sale_date)
+    .bind(t.punch_card_reduction)
+    .bind(punches_after - punches_before)
+    .bind(dto.delivery_address.unwrap_or_default())
+    .bind(dto.delivery_phone.unwrap_or_default())
+    .bind(t.delivery_fee)
+    .bind(dto.order_id)
     .execute(&mut *tx)
     .await?;
 
@@ -433,10 +506,11 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Cre
     }
 
     if let Some(cid) = dto.client_id {
-        sqlx::query("UPDATE clients SET bonus_balance = bonus_balance - $2::float8 + $3::float8 WHERE id=$1")
+        sqlx::query("UPDATE clients SET bonus_balance = bonus_balance - $2::float8 + $3::float8, punch_punches = $4 WHERE id=$1")
             .bind(cid)
             .bind(t.bonus_reduction)
             .bind(t.accumulation)
+            .bind(punches_after)
             .execute(&mut *tx)
             .await?;
     }
@@ -457,15 +531,16 @@ async fn created_view(pool: &PgPool, org: Uuid, id: Uuid) -> AppResult<Json<Sale
 async fn remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
     ctx.require("sale.delete")?;
     let mut tx = s.pool.begin().await?;
-    let sale: Option<(Uuid, Option<Uuid>, f64, f64)> = sqlx::query_as(
-        "SELECT store_id, client_id, bonus_reduction::float8, bonus_accumulation::float8 FROM sales \
+    let sale: Option<(Uuid, Option<Uuid>, f64, f64, i32)> = sqlx::query_as(
+        "SELECT store_id, client_id, bonus_reduction::float8, bonus_accumulation::float8, punch_delta FROM sales \
          WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE",
     )
     .bind(id)
     .bind(ctx.org_id)
     .fetch_optional(&mut *tx)
     .await?;
-    let (store_id, client_id, reduction, accumulation) = sale.ok_or_else(|| AppError::NotFound("Продажа не найдена".into()))?;
+    let (store_id, client_id, reduction, accumulation, punch_delta) =
+        sale.ok_or_else(|| AppError::NotFound("Продажа не найдена".into()))?;
 
     // сторно: обратное движение на чистый эффект продажи и возвратов
     let net: Vec<(Uuid, f64)> = sqlx::query_as(
@@ -480,10 +555,14 @@ async fn remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid
         }
     }
     if let Some(cid) = client_id {
-        sqlx::query("UPDATE clients SET bonus_balance = GREATEST(0, bonus_balance + $2::float8 - $3::float8) WHERE id=$1")
+        sqlx::query(
+            "UPDATE clients SET bonus_balance = GREATEST(0, bonus_balance + $2::float8 - $3::float8), \
+             punch_punches = GREATEST(0, punch_punches - $4) WHERE id=$1",
+        )
             .bind(cid)
             .bind(reduction)
             .bind(accumulation)
+            .bind(punch_delta)
             .execute(&mut *tx)
             .await?;
     }

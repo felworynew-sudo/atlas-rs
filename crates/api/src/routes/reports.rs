@@ -337,6 +337,21 @@ async fn profit_report(State(s): State<AppState>, ctx: AuthContext, Query(q): Qu
         }
     }
     let returns_sum: f64 = returns.iter().map(|r| r.amount).sum();
+    // завершённые комплексные продажи: выручка — стоимость для клиента, себестоимость — расходы по списку
+    let (cs_sales, cs_cost): (f64, f64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(c.final_price),0)::float8, \
+                COALESCE(SUM((SELECT COALESCE(SUM(i.qty * i.cost + i.extra_cost),0) FROM complex_sale_items i WHERE i.sale_id = c.id)),0)::float8 \
+         FROM complex_sales c WHERE c.organization_id=$1 AND c.deleted_at IS NULL AND c.status='done' AND c.store_id = ANY($2) \
+           AND c.sale_date >= $3 AND c.sale_date < $4",
+    )
+    .bind(org)
+    .bind(&sc.stores)
+    .bind(sc.from)
+    .bind(sc.to)
+    .fetch_one(&s.pool)
+    .await?;
+    let sales = sales + cs_sales;
+    let cost = cost + cs_cost;
     // товар, возвращённый на склад, возвращает и свою себестоимость; списанный возврат её не возвращает
     let (restocked_cost,): (f64,) = sqlx::query_as(
         "SELECT COALESCE(SUM(ri.qty * si.cost_price),0)::float8 FROM sale_return_items ri \

@@ -50,6 +50,17 @@ async fn call(env: &Env, method: Method, uri: &str, token: Option<&str>, body: O
     (status, v)
 }
 
+async fn enable(env: &Env, t: &str, keys: &[&str]) {
+    let (_, org) = call(env, Method::GET, "/api/organizations", Some(t), None).await;
+    let mut m = org["modules"].clone();
+    for k in keys {
+        m[*k] = json!(true);
+    }
+    let uri = format!("/api/organizations/{}", org["id"].as_str().unwrap());
+    let (st, _) = call(env, Method::PUT, &uri, Some(t), Some(json!({ "modules": m }))).await;
+    assert_eq!(st, StatusCode::OK);
+}
+
 fn s(v: &Value) -> String {
     v.as_str().unwrap().to_string()
 }
@@ -73,6 +84,7 @@ async fn stock_flow() {
     assert_eq!(st, StatusCode::OK, "{body}");
     let t = s(&body["token"]);
     let t = t.as_str();
+    enable(&env, t, &["supplies"]).await; // «Приемки» выключены в новой организации
     let (_, stores) = call(&env, Method::GET, "/api/stores", Some(t), None).await;
     let store = s(&stores[0]["id"]);
     let (_, sup) = call(&env, Method::POST, "/api/suppliers", Some(t), Some(json!({"name": "Опт"}))).await;

@@ -52,6 +52,8 @@ pub struct AuthContext {
     pub org_id: Uuid,
     pub role_key: String,
     pub permissions: Vec<String>,
+    /// Включённые модули организации (JSON `{"shifts": true, ...}`).
+    pub modules: serde_json::Value,
 }
 
 impl AuthContext {
@@ -59,7 +61,17 @@ impl AuthContext {
         self.role_key == atlas_domain::roles::ADMIN_KEY
     }
 
+    pub fn module_enabled(&self, module: atlas_domain::modules::Module) -> bool {
+        self.modules.get(module.key()).and_then(serde_json::Value::as_bool).unwrap_or(false)
+    }
+
+    /// Право действует, если выдано роли (админ — все) и модуль, к которому оно относится, включён в организации.
     pub fn can(&self, permission: &str) -> bool {
+        if let Some(m) = atlas_domain::permissions::module_of(permission) {
+            if !self.module_enabled(m) {
+                return false;
+            }
+        }
         self.is_admin() || self.permissions.iter().any(|p| p == permission)
     }
 
@@ -91,9 +103,9 @@ impl FromRequestParts<AppState> for AuthContext {
         )
         .map_err(|_| AppError::Unauthorized("Сессия истекла".into()))?;
 
-        let row: Option<(Uuid, String, Vec<String>, bool)> = sqlx::query_as(
-            "SELECT u.organization_id, r.key, r.permissions, u.active \
-             FROM users u JOIN roles r ON r.id = u.role_id \
+        let row: Option<(Uuid, String, Vec<String>, bool, serde_json::Value)> = sqlx::query_as(
+            "SELECT u.organization_id, r.key, r.permissions, u.active, o.modules \
+             FROM users u JOIN roles r ON r.id = u.role_id JOIN organizations o ON o.id = u.organization_id \
              WHERE u.id = $1",
         )
         .bind(data.claims.sub)
@@ -101,11 +113,12 @@ impl FromRequestParts<AppState> for AuthContext {
         .await?;
 
         match row {
-            Some((org_id, role_key, permissions, true)) => Ok(AuthContext {
+            Some((org_id, role_key, permissions, true, modules)) => Ok(AuthContext {
                 user_id: data.claims.sub,
                 org_id,
                 role_key,
                 permissions,
+                modules,
             }),
             _ => Err(AppError::Unauthorized("Сессия истекла".into())),
         }

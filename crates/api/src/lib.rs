@@ -41,6 +41,11 @@ pub fn app(state: AppState) -> Router {
         .nest("/api/spendings", routes::finance::spendings_router())
         .nest("/api/recurring-expenses", routes::finance::recurring_router())
         .nest("/api/reports", routes::reports::router())
+        .nest("/api/complex-sales", routes::complex_sales::router())
+        .nest("/api/complex-sale-templates", routes::complex_sales::templates_router())
+        .nest("/api/orders", routes::orders::router())
+        .nest("/api/marketplace", routes::orders::marketplace_router())
+        .merge(routes::settings::router())
         .route("/api/permissions", get(routes::roles::list_permissions))
         .with_state(state)
 }

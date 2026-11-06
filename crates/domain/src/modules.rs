@@ -60,6 +60,29 @@ impl Module {
         )
     }
 
+    /// Ключ модуля в JSON организации (`snake_case`).
+    pub fn key(self) -> &'static str {
+        match self {
+            Module::SimpleSales => "simple_sales",
+            Module::ComplexSales => "complex_sales",
+            Module::Spendings => "spendings",
+            Module::Shifts => "shifts",
+            Module::Stocks => "stocks",
+            Module::Supplies => "supplies",
+            Module::Writeoffs => "writeoffs",
+            Module::Revisions => "revisions",
+            Module::Transfers => "transfers",
+            Module::Salary => "salary",
+            Module::Checklist => "checklist",
+            Module::Marketplace => "marketplace",
+            Module::Updates => "updates",
+            Module::Payments => "payments",
+            Module::LabelPrinting => "label_printing",
+            Module::Manufacture => "manufacture",
+            Module::Clients => "clients",
+        }
+    }
+
     /// Русское название модуля (для UI).
     pub fn title(self) -> &'static str {
         match self {
@@ -101,5 +124,13 @@ mod tests {
         assert!(f[&Module::SimpleSales] && f[&Module::Clients]);
         assert!(!f[&Module::Shifts] && !f[&Module::Salary] && !f[&Module::Transfers]);
         assert_eq!(f.values().filter(|v| **v).count(), 8);
+    }
+
+    #[test]
+    fn keys_match_serde_names() {
+        for m in Module::ALL {
+            let json = serde_json::to_string(&m).unwrap();
+            assert_eq!(json, format!("\"{}\"", m.key()));
+        }
     }
 }

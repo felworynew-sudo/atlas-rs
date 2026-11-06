@@ -1,5 +1,6 @@
 //! Чистая бизнес-логика Атласа (без ввода-вывода).
 pub mod catalog;
+pub mod csv;
 pub mod finance;
 pub mod modules;
 pub mod permissions;

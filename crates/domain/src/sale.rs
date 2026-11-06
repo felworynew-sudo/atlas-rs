@@ -19,7 +19,9 @@ pub enum Discount {
 pub struct Totals {
     pub subtotal: f64,
     pub markup: f64,
+    pub delivery_fee: f64,
     pub discount: f64,
+    pub punch_card_reduction: f64,
     pub bonus_reduction: f64,
     pub total: f64,
     pub accumulation: f64,
@@ -34,6 +36,28 @@ pub struct TotalsInput {
     pub client_balance: f64,
     /// None — клиента нет или кэшбэк выключен
     pub cashback_percent: Option<f64>,
+    /// стоимость доставки, оплачиваемая покупателем (добавляется к чеку)
+    pub delivery_fee: f64,
+    /// скидка по карте «N-й товар в подарок»
+    pub punch_card_reduction: f64,
+}
+
+/// Карта «N-й товар в подарок»: каждая единица товара добавляет отметку; на N-й единице скидка равна её цене,
+/// счётчик обнуляется. Возвращает (скидка, новое значение счётчика).
+pub fn punch_card(punches: i32, capacity: i32, unit_prices: &[f64]) -> (f64, i32) {
+    let mut p = punches.max(0);
+    if capacity < 2 {
+        return (0.0, p);
+    }
+    let mut reduction = 0.0;
+    for price in unit_prices {
+        p += 1;
+        if p >= capacity {
+            reduction += price;
+            p = 0;
+        }
+    }
+    (round2(reduction), p)
 }
 
 /// Итоги чека: сумма позиций + надбавка − скидка − оплата бонусами; кэшбэк начисляется на сумму к оплате.
@@ -65,13 +89,24 @@ pub fn totals(i: &TotalsInput) -> Result<Totals, String> {
     if bonus > round2(i.client_balance) {
         return Err("Недостаточно бонусов у клиента".into());
     }
-    let payable = round2(subtotal + markup - discount);
+    let delivery_fee = round2(i.delivery_fee.max(0.0));
+    let punch = round2(i.punch_card_reduction.max(0.0));
+    let payable = round2((subtotal + markup + delivery_fee - discount - punch).max(0.0));
     if bonus > payable {
         return Err("Бонусы больше суммы к оплате".into());
     }
     let total = round2(payable - bonus);
     let accumulation = i.cashback_percent.map_or(0.0, |p| round2(total * p.max(0.0) / 100.0));
-    Ok(Totals { subtotal, markup, discount, bonus_reduction: bonus, total, accumulation })
+    Ok(Totals {
+        subtotal,
+        markup,
+        delivery_fee,
+        discount,
+        punch_card_reduction: punch,
+        bonus_reduction: bonus,
+        total,
+        accumulation,
+    })
 }
 
 /// Смешанная оплата: два платежа должны покрывать итог до копейки.
@@ -135,7 +170,27 @@ mod tests {
             bonus_reduction: 0.0,
             client_balance: 0.0,
             cashback_percent: None,
+            delivery_fee: 0.0,
+            punch_card_reduction: 0.0,
         }
+    }
+
+    #[test]
+    fn punch_card_every_nth_unit_is_free() {
+        // капасити 3: счётчик 1 → 2-я единица ещё платная, 3-я (цена 30) бесплатна, 4-я — новая отметка
+        assert_eq!(punch_card(1, 3, &[10.0, 30.0, 50.0]), (30.0, 1));
+        assert_eq!(punch_card(0, 3, &[10.0, 20.0]), (0.0, 2));
+        // две подарочные единицы за одну продажу
+        assert_eq!(punch_card(2, 2, &[5.0, 7.0, 9.0]), (5.0 + 9.0, 0));
+        // выключенная карта (ёмкость < 2) ничего не делает
+        assert_eq!(punch_card(4, 1, &[10.0]), (0.0, 4));
+    }
+
+    #[test]
+    fn delivery_fee_and_punch_card_in_totals() {
+        let t = totals(&TotalsInput { delivery_fee: 200.0, punch_card_reduction: 100.0, ..inp(1000.0) }).unwrap();
+        assert_eq!(t.total, 1100.0);
+        assert_eq!(t.delivery_fee, 200.0);
     }
 
     #[test]

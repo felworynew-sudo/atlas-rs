@@ -75,6 +75,11 @@ pub fn is_known(key: &str) -> bool {
     ALL.iter().any(|p| p.key == key)
 }
 
+/// Модуль, от которого зависит право (None — право доступно всегда).
+pub fn module_of(key: &str) -> Option<Module> {
+    ALL.iter().find(|p| p.key == key).and_then(|p| p.module)
+}
+
 pub fn all_keys() -> Vec<String> {
     ALL.iter().map(|p| p.key.to_string()).collect()
 }

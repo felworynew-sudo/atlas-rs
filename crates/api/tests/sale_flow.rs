@@ -118,7 +118,7 @@ async fn sale_flow() {
     assert_eq!(st, StatusCode::BAD_REQUEST); // у услуги нет остатков
 
     // клиенты
-    let (st, client) = call(&env, Method::POST, "/api/clients", Some(t), Some(json!({"name": "Анна", "phone": "+7 (900) 111-22-33"}))).await;
+    let (st, client) = call(&env, Method::POST, "/api/clients", Some(t), Some(json!({"name": "Анна", "phone": "+7 (900) 111-22-33", "bonusLevel": 3.0}))).await;
     assert_eq!(st, StatusCode::OK, "{client}");
     assert_eq!(client["phone"], "+79001112233");
     let client_id = s(&client["id"]);
