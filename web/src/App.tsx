@@ -14,6 +14,9 @@ import ManufactureForm from './pages/ManufactureForm';
 import Manufactures from './pages/Manufactures';
 import TransferForm from './pages/TransferForm';
 import Transfers from './pages/Transfers';
+import Labels from './pages/Labels';
+import Payments from './pages/Payments';
+import Updates from './pages/Updates';
 import Clients from './pages/Clients';
 import ProductStats from './pages/ProductStats';
 import Settings from './pages/Settings';
@@ -72,6 +75,9 @@ export default function App() {
         <Route path="/transfer/new" element={<TransferForm />} />
         <Route path="/manufactures" element={<Manufactures />} />
         <Route path="/manufacture/new" element={<ManufactureForm />} />
+        <Route path="/payments" element={<Payments />} />
+        <Route path="/updates" element={<Updates />} />
+        <Route path="/labels" element={<Labels />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/:section" element={<Settings />} />
         <Route path="/spendings" element={<Spendings />} />

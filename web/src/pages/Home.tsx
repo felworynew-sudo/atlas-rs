@@ -32,6 +32,9 @@ const TILES: Tile[] = [
   { title: 'Клиенты', icon: 'people', to: '/clients', perm: 'client.view', module: 'clients' },
   { title: 'Зарплата', icon: 'card', to: '/salary', perm: 'salary.view', module: 'salary' },
   { title: 'Ревизии', icon: 'edit', to: '/revisions', perm: 'revision.view', module: 'revisions' },
+  { title: 'Платежи', icon: 'card', to: '/payments', perm: 'payments.view', module: 'payments' },
+  { title: 'Обновления', icon: 'bell', to: '/updates', perm: 'updates.view', module: 'updates' },
+  { title: 'Печать этикеток', icon: 'pricetags', to: '/labels', perm: 'labels.print', module: 'label_printing' },
   { title: 'Настройки', icon: 'settings', to: '/settings', perm: 'settings.edit' },
 ];
 
