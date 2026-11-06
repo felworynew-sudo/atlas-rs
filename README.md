@@ -34,7 +34,7 @@
 ```bash
 export DATABASE_URL=postgres://postgres:secret@127.0.0.1:54329/atlas
 export JWT_SECRET=change-me
-cargo run -p atlas-api        # слушает 0.0.0.0:8080, миграции применяются при старте
+cargo run -p atlas-api        # слушает BIND (по умолчанию 0.0.0.0:8080; на Windows порт 8080 может быть закрыт — BIND=127.0.0.1:8787), миграции применяются при старте
 ```
 
 ## Тесты
@@ -49,3 +49,6 @@ TEST_DATABASE_URL=postgres://postgres:secret@127.0.0.1:54329/atlas_test cargo te
 ## Заметки по окружению
 - Диск D почти полон: сборку веду на C (`CARGO_TARGET_DIR=C:/Users/shika/atlas-target`), в `Cargo.toml` `debug = 0`.
 - Локальный PostgreSQL 18.6 лежит в `C:\Users\shika\atlas-pg` (порт 54329, пароль `secret`, только для разработки).
+
+## Интерфейс
+Папка `web/` — React + TypeScript (Vite); запуск и состояние — в `web/README.md`.

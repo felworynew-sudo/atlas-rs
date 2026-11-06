@@ -1,0 +1,146 @@
+/* Токены оформления — из design-system.md (тёмная тема по умолчанию, светлая — Eva Light) */
+:root {
+  --bg: #141414;
+  --surface: #2c2c2e;
+  --input: #1c1c1e;
+  --fill: rgba(142, 142, 147, 0.08);
+  --fill-hover: rgba(142, 142, 147, 0.24);
+  --text: #ffffff;
+  --hint: #8e8e93;
+  --accent: #7b93c8;
+  --accent-fill: rgba(123, 147, 200, 0.08);
+  --danger: #ff3b30;
+  --danger-btn: #ff2d55;
+  --success: #34c759;
+  --border: #8e8e93;
+  --shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  --radius: 5px;
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    --bg: #f2f2f2;
+    --surface: #ffffff;
+    --input: #f7f9fc;
+    --fill: rgba(143, 155, 179, 0.08);
+    --fill-hover: rgba(143, 155, 179, 0.24);
+    --text: #222b45;
+    --hint: #8f9bb3;
+    --accent: #3366ff;
+    --accent-fill: rgba(51, 102, 255, 0.08);
+    --border: #e4e9f2;
+    --shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+    color-scheme: light;
+  }
+}
+:root[data-theme='light'] {
+  --bg: #f2f2f2;
+  --surface: #ffffff;
+  --input: #f7f9fc;
+  --fill: rgba(143, 155, 179, 0.08);
+  --fill-hover: rgba(143, 155, 179, 0.24);
+  --text: #222b45;
+  --hint: #8f9bb3;
+  --accent: #3366ff;
+  --accent-fill: rgba(51, 102, 255, 0.08);
+  --border: #e4e9f2;
+  --shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 15px/1.35 var(--font); }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--accent); text-decoration: none; }
+
+/* оболочка и шапка (высота 64px, как в оригинале) */
+.app { min-height: 100%; display: flex; flex-direction: column; }
+.header { height: 64px; background: var(--surface); display: flex; align-items: center; gap: 12px; padding: 0 12px; position: sticky; top: 0; z-index: 5; }
+.header h1 { margin: 0; font-size: 18px; font-weight: 500; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn { width: 44px; height: 44px; border: 0; background: transparent; color: var(--text); display: grid; place-items: center; border-radius: var(--radius); position: relative; }
+.icon-btn.small { width: 30px; height: 30px; }
+.icon svg { display: block; }
+.page { width: 100%; max-width: 760px; margin: 0 auto; padding: 20px; flex: 1; }
+.page.wide { max-width: 1100px; }
+
+/* формы */
+label.field { display: block; margin-bottom: 18px; }
+label.field > span, .label { display: block; font-size: 12px; font-weight: 800; margin-bottom: 8px; }
+input[type='text'], input[type='email'], input[type='password'], input[type='number'], input[type='date'], input[type='search'], select, textarea {
+  width: 100%; height: 44px; border: 0; border-radius: var(--radius); background: var(--input); padding: 0 17px; outline: none;
+}
+textarea { height: 90px; padding: 12px 17px; }
+input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 1px var(--accent); }
+.btn { height: 49px; width: 100%; border: 0; border-radius: var(--radius); background: var(--accent); color: #fff; font-size: 14px; font-weight: 700; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn.light { background: var(--fill-hover); color: var(--text); }
+.btn.danger { background: transparent; border: 1px solid var(--danger-btn); color: var(--danger-btn); }
+.btn.inline { width: auto; padding: 0 18px; }
+.link { background: none; border: 0; color: var(--accent); font-size: 14px; font-weight: 700; padding: 6px 0; }
+.error { color: var(--danger); margin: 8px 0 14px; }
+.ok { color: var(--success); margin: 8px 0 14px; }
+.empty { color: var(--hint); text-align: center; padding: 40px 0; }
+.row { display: flex; gap: 10px; align-items: center; }
+.row.wrap { flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.muted { color: var(--hint); }
+.h2 { font-size: 22px; font-weight: 800; margin: 24px 0 14px; }
+
+/* чипы */
+.chips { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 16px; }
+.chip { min-height: 41px; padding: 0 11px; border-radius: var(--radius); border: 0.67px solid var(--border); background: var(--fill); color: var(--text); font-size: 14px; font-weight: 700; }
+.chip.small { min-height: 32px; font-size: 12px; }
+.chip.active { border-color: var(--accent); color: var(--accent); background: var(--accent-fill); }
+
+/* карточки списков */
+.card { background: var(--surface); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 8px; }
+.card.click { cursor: pointer; }
+.card .title { font-size: 13px; font-weight: 600; }
+.card .sub { font-size: 12px; color: var(--hint); margin-top: 4px; }
+.price { font-weight: 700; }
+.low { color: var(--danger); }
+
+/* главная: плитки 140×140, зазор 16 */
+.org-name { font-size: 26px; font-weight: 800; text-align: center; margin: 18px 0 12px; }
+.stats { display: grid; grid-template-columns: repeat(3, 100px); gap: 16px; justify-content: center; text-align: center; font-size: 14px; margin-bottom: 26px; }
+.stats b { display: block; font-size: 12px; font-weight: 800; margin-bottom: 6px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 140px); gap: 16px; justify-content: center; }
+.tile { width: 140px; height: 140px; background: var(--surface); border: 0; border-radius: var(--radius); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text); font-size: 13px; font-weight: 600; text-align: center; padding: 8px; }
+.tile.off { opacity: 0.4; cursor: default; }
+@media (max-width: 717px) {
+  .tiles { grid-template-columns: repeat(2, 144px); }
+  .tile { width: 144px; height: 144px; }
+}
+
+/* новая продажа: чек слева, каталог справа */
+.sale { display: grid; grid-template-columns: 290px 1fr; gap: 20px; align-items: start; }
+@media (max-width: 717px) { .sale { grid-template-columns: 1fr; } }
+.cart-line { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--fill); font-size: 13px; font-weight: 600; }
+.qty-btn { width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--fill-hover); color: var(--text); display: grid; place-items: center; }
+.total-row { display: flex; justify-content: space-between; font-size: 18px; font-weight: 800; margin: 14px 0; }
+.products { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 10px; }
+.product { height: 130px; background: var(--surface); border: 0; border-radius: var(--radius); padding: 10px; display: flex; flex-direction: column; justify-content: space-between; text-align: left; color: var(--text); }
+.product .name { font-size: 12px; font-weight: 700; overflow: hidden; }
+.product .meta { font-size: 12px; color: var(--hint); }
+.bills { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 12px; }
+.bills button { min-width: 44px; height: 31px; border-radius: var(--radius); border: 0.67px solid var(--border); background: var(--fill); }
+.sheet { position: fixed; inset: 0; background: var(--bg); z-index: 20; overflow: auto; }
+
+/* модалы */
+.modal-back { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 30; display: grid; place-items: center; padding: 20px; }
+.modal { background: var(--surface); border-radius: 20px; width: min(540px, 100%); max-height: 90vh; overflow: auto; padding: 24px; position: relative; }
+.modal .close { position: absolute; top: 12px; right: 12px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: #fff; color: #222; display: grid; place-items: center; }
+
+.toast { position: fixed; left: 50%; bottom: 30px; transform: translateX(-50%); background: var(--surface); box-shadow: var(--shadow); padding: 12px 20px; border-radius: var(--radius); z-index: 40; font-weight: 600; }
+.spinner { width: 24px; height: 24px; border-radius: 50%; border: 3px solid var(--fill-hover); border-top-color: var(--accent); animation: spin 0.8s linear infinite; margin: 40px auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.auth { max-width: 420px; margin: 0 auto; padding: 60px 20px; }
+.auth h1 { font-size: 26px; font-weight: 800; text-align: center; margin: 0 0 30px; }
+.day { font-size: 12px; font-weight: 800; margin: 18px 0 8px; color: var(--hint); }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table th { text-align: left; font-size: 12px; font-weight: 800; padding: 6px 4px; }
+.table td { padding: 8px 4px; border-top: 1px solid var(--fill); }
+.table td.num, .table th.num { text-align: right; }
