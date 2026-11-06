@@ -7,6 +7,9 @@ import Products from './pages/Products';
 import SaleDetail from './pages/SaleDetail';
 import Checklist from './pages/Checklist';
 import ClientDetail from './pages/ClientDetail';
+import ClientOrders from './pages/ClientOrders';
+import ComplexSaleForm from './pages/ComplexSaleForm';
+import ComplexSales from './pages/ComplexSales';
 import Clients from './pages/Clients';
 import ProductStats from './pages/ProductStats';
 import Settings from './pages/Settings';
@@ -58,6 +61,9 @@ export default function App() {
         <Route path="/checklist" element={<Checklist />} />
         <Route path="/clients" element={<Clients />} />
         <Route path="/client/:id" element={<ClientDetail />} />
+        <Route path="/complex-sales" element={<ComplexSales />} />
+        <Route path="/complex-sale/:id" element={<ComplexSaleForm />} />
+        <Route path="/client-orders" element={<ClientOrders />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/:section" element={<Settings />} />
         <Route path="/spendings" element={<Spendings />} />

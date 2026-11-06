@@ -326,3 +326,40 @@ export interface SalaryDetail extends SalaryRow {
   payments: { id: string; amount: number; walletId: string | null; comment: string; paidOn: string }[];
 }
 export interface ChecklistItem { id: string; title: string; time: string; sortOrder: number; kind: 'daily' | 'once' | 'section'; done: boolean; doneAt: string | null; doneBy: string | null }
+
+export interface ComplexItem { id?: string; productId: string | null; name: string; qty: number; cost: number; extraCost: number }
+export interface ComplexSale {
+  id: string;
+  storeId: string;
+  clientId: string | null;
+  templateName: string;
+  name: string;
+  status: 'new' | 'in_progress' | 'done' | 'cancelled';
+  comment: string;
+  finalPrice: number;
+  saleDate: string;
+  expensesTotal: number;
+  paid: number;
+  expectedProfit: number;
+  remaining: number;
+  items: ComplexItem[];
+  payments: { id: string; walletId: string | null; amount: number; comment: string; paidAt: string }[];
+  updates: { kind: string; text: string; createdAt: string }[];
+}
+export interface ComplexTemplate { id: string; name: string; finalPrice: number; items: { name: string; qty?: number; cost?: number; extraCost?: number; productId?: string | null }[] }
+export interface ClientOrder {
+  id: string;
+  number: number;
+  storeId: string;
+  source: string;
+  clientName: string;
+  clientPhone: string;
+  items: { productId: string | null; name: string; qty: number; price: number }[];
+  total: number;
+  status: 'new' | 'in_work' | 'ready' | 'done' | 'cancelled';
+  paymentMethod: string;
+  deliveryAddress: string;
+  notes: string;
+  saleId: string | null;
+  createdAt: string;
+}

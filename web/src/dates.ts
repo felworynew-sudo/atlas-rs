@@ -44,3 +44,6 @@ export const ORDER_STATUSES: Record<string, string> = {
   received: 'Получен',
   cancelled: 'Отменен',
 };
+
+export const COMPLEX_STATUSES: Record<string, string> = { new: 'Новый', in_progress: 'В работе', done: 'Завершен', cancelled: 'Отменен' };
+export const CLIENT_ORDER_STATUSES: Record<string, string> = { new: 'Новый', in_work: 'В работе', ready: 'Готов', done: 'Выполнен', cancelled: 'Отменён' };
