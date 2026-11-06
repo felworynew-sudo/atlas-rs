@@ -18,14 +18,15 @@ const TILES: Tile[] = [
   { title: 'Новая продажа', icon: 'plus', to: '/new-sale', perm: 'sale.new', module: 'simple_sales' },
   { title: 'История продаж', icon: 'clock', to: '/sales-history', perm: 'sale.history', module: 'simple_sales' },
   { title: 'Комплексные продажи', icon: 'file-text', perm: 'complex_sale.view', module: 'complex_sales' },
-  { title: 'Списания', icon: 'trash', perm: 'writeoff.history', module: 'writeoffs' },
+  { title: 'Приемки', icon: 'truck', to: '/supplies', perm: 'supply.history', module: 'supplies' },
+  { title: 'Списания', icon: 'trash', to: '/writeoffs', perm: 'writeoff.history', module: 'writeoffs' },
   { title: 'Заказы от клиентов', icon: 'bell', perm: 'client_orders.view', module: 'marketplace' },
-  { title: 'Остатки товаров', icon: 'clipboard', perm: 'stock.view', module: 'stocks' },
+  { title: 'Остатки товаров', icon: 'clipboard', to: '/stocks', perm: 'stock.view', module: 'stocks' },
   { title: 'Товары, услуги и ингредиенты', icon: 'pricetags', to: '/products', perm: 'product.view' },
   { title: 'Расходы', icon: 'cart', perm: 'spending.view', module: 'spendings' },
   { title: 'Отчеты', icon: 'chart', perm: 'reports.view' },
   { title: 'Клиенты', icon: 'people', perm: 'client.view', module: 'clients' },
-  { title: 'Ревизии', icon: 'edit', perm: 'revision.view', module: 'revisions' },
+  { title: 'Ревизии', icon: 'edit', to: '/revisions', perm: 'revision.view', module: 'revisions' },
   { title: 'Настройки', icon: 'settings', perm: 'settings.edit' },
 ];
 

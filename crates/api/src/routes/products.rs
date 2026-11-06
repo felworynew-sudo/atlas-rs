@@ -607,6 +607,11 @@ fn apply_patch(dto: &mut ProductDto, p: &Map<String, Value>) -> AppResult<()> {
             "unitId" => dto.unit_id = opt_uuid(val, key)?,
             "purchasePrice" => dto.purchase_price = num(val, key)?,
             "extraCost" => dto.extra_cost = num(val, key)?,
+            "stockThreshold" => dto.stock_threshold = num(val, key)?,
+            "important" => dto.important = val.as_bool().ok_or_else(|| AppError::BadRequest("Поле «important» должно быть логическим".into()))?,
+            "allowFractional" => {
+                dto.allow_fractional = val.as_bool().ok_or_else(|| AppError::BadRequest("Поле «allowFractional» должно быть логическим".into()))?
+            }
             "hiddenInNewSale" => {
                 dto.hidden_in_new_sale = val.as_bool().ok_or_else(|| AppError::BadRequest("Поле «hiddenInNewSale» должно быть логическим".into()))?
             }

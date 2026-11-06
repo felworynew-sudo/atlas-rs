@@ -93,10 +93,71 @@ export interface Product {
   unitId: string | null;
   barcodes: string[];
   allowFractional: boolean;
+  important: boolean;
   stockThreshold: number;
   stores: StorePrice[];
 }
-export interface StockRow { productId: string; name: string; qty: number; threshold: number; low: boolean }
+export interface StockRow {
+  productId: string;
+  name: string;
+  categoryId: string | null;
+  qty: number;
+  threshold: number;
+  low: boolean;
+  sold7: number;
+  writtenOff7: number;
+}
+export interface StockSummary { unitsInStock: number; valueAtPurchase: number; valueAtSale: number }
+export interface Movement {
+  id: string;
+  kind: string;
+  delta: number;
+  qtyBefore: number;
+  qtyAfter: number;
+  refId: string | null;
+  createdAt: string;
+}
+export interface Supplier { id: string; name: string }
+export interface Wallet { id: string; name: string; storeId: string | null; isCashRegister: boolean; balance: number }
+export interface SupplyItem { productId: string; name: string; qty: number; price: number }
+export interface Supply {
+  id: string;
+  storeId: string;
+  supplierId: string | null;
+  orderId: string | null;
+  supplyDate: string;
+  hasReturn: boolean;
+  pricesChanged: boolean;
+  paid: boolean;
+  comment: string;
+  total: number;
+  items: SupplyItem[];
+}
+export interface OrderItem { productId: string; name: string; qty: number; unitPrice: number }
+export interface SupplyOrder {
+  id: string;
+  storeId: string;
+  supplierId: string | null;
+  status: string;
+  orderDate: string;
+  comment: string;
+  total: number;
+  items: OrderItem[];
+}
+export interface Suggestion { productId: string; name: string; currentQty: number; threshold: number; suggestedQty: number; unitPrice: number }
+export interface Writeoff {
+  id: string;
+  storeId: string;
+  productId: string;
+  productName: string;
+  qty: number;
+  reasonName: string;
+  amount: number;
+  comment: string;
+  writeoffDate: string;
+}
+export interface RevisionItem { productId: string; name: string; systemQty: number; factQty: number; diffAmount: number }
+export interface Revision { id: string; storeId: string; categoryId: string | null; totalDiff: number; revisionDate: string; comment: string; items: RevisionItem[] }
 export interface Client { id: string; name: string; phone: string; bonusBalance: number; bonusLevel: number | null; punches: number }
 export interface SaleItem { id: string; productId: string | null; name: string; qty: number; price: number; returnedQty: number }
 export interface Sale {

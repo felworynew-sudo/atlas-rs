@@ -52,6 +52,31 @@ export function Chips<T extends string>({ options, value, onChange }: { options:
   );
 }
 
+/** Чипы филиалов; `all` добавляет пункт «Все». */
+export function StoreChips({ stores, value, onChange, all = false }: { stores: { id: string; name: string }[]; value: string; onChange: (id: string) => void; all?: boolean }) {
+  return (
+    <div className="chips">
+      {all && <button className={`chip${value === 'all' ? ' active' : ''}`} onClick={() => onChange('all')}>Все</button>}
+      {stores.map((st) => (
+        <button key={st.id} className={`chip${value === st.id ? ' active' : ''}`} onClick={() => onChange(st.id)}>{st.name}</button>
+      ))}
+    </div>
+  );
+}
+
+/** «Фильтр по дате»: диапазон из двух дат. */
+export function DateRange({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
+  return (
+    <>
+      <span className="label">Фильтр по дате</span>
+      <div className="row" style={{ marginBottom: 16 }}>
+        <input type="date" aria-label="С" value={from} max={to} onChange={(e) => onChange(e.target.value, to)} />
+        <input type="date" aria-label="По" value={to} min={from} onChange={(e) => onChange(from, e.target.value)} />
+      </div>
+    </>
+  );
+}
+
 /** Короткое сообщение внизу экрана («Успешно»). */
 export function useToast(): [ReactNode, (text: string) => void] {
   const [text, setText] = useState<string | null>(null);
