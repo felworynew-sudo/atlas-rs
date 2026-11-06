@@ -38,6 +38,7 @@ pub struct RoleView {
     pub salary_type: String,
     pub salary_rate: f64,
     pub bonus_type: String,
+    pub bonus_rate: f64,
     pub permissions: Vec<String>,
 }
 
@@ -48,6 +49,7 @@ pub struct RoleDto {
     pub salary_type: Option<String>,
     pub salary_rate: Option<f64>,
     pub bonus_type: Option<String>,
+    pub bonus_rate: Option<f64>,
     pub permissions: Option<Vec<String>>,
 }
 
@@ -69,6 +71,9 @@ fn validate(dto: &RoleDto) -> AppResult<()> {
     if dto.salary_rate.map_or(false, |r| r < 0.0) {
         return Err(AppError::BadRequest("Ставка не может быть отрицательной".into()));
     }
+    if dto.bonus_rate.map_or(false, |r| !(0.0..=100.0).contains(&r)) {
+        return Err(AppError::BadRequest("Процент бонуса от 0 до 100".into()));
+    }
     if let Some(ps) = &dto.permissions {
         if let Some(bad) = ps.iter().find(|p| !permissions::is_known(p)) {
             return Err(AppError::BadRequest(format!("Неизвестное право: {bad}")));
@@ -79,7 +84,7 @@ fn validate(dto: &RoleDto) -> AppResult<()> {
 
 async fn list(State(s): State<AppState>, ctx: AuthContext) -> AppResult<Json<Vec<RoleView>>> {
     ctx.require("settings.users")?;
-    let rows = sqlx::query_as::<_, RoleView>("SELECT id, key, name, salary_type, salary_rate::float8 AS salary_rate, bonus_type, permissions FROM roles WHERE organization_id=$1 AND deleted_at IS NULL ORDER BY created_at")
+    let rows = sqlx::query_as::<_, RoleView>("SELECT id, key, name, salary_type, salary_rate::float8 AS salary_rate, bonus_type, bonus_rate::float8 AS bonus_rate, permissions FROM roles WHERE organization_id=$1 AND deleted_at IS NULL ORDER BY created_at")
     .bind(ctx.org_id)
     .fetch_all(&s.pool)
     .await?;
@@ -88,7 +93,7 @@ async fn list(State(s): State<AppState>, ctx: AuthContext) -> AppResult<Json<Vec
 
 async fn one(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>) -> AppResult<Json<RoleView>> {
     ctx.require("settings.users")?;
-    let row = sqlx::query_as::<_, RoleView>("SELECT id, key, name, salary_type, salary_rate::float8 AS salary_rate, bonus_type, permissions FROM roles WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL")
+    let row = sqlx::query_as::<_, RoleView>("SELECT id, key, name, salary_type, salary_rate::float8 AS salary_rate, bonus_type, bonus_rate::float8 AS bonus_rate, permissions FROM roles WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL")
     .bind(id)
     .bind(ctx.org_id)
     .fetch_optional(&s.pool)
@@ -104,8 +109,8 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Rol
     // Пользовательская роль получает ключ `custom_<uuid-префикс>`; ключи admin/cashier зарезервированы.
     let key = format!("custom_{}", &id.simple().to_string()[..8]);
     sqlx::query(
-        "INSERT INTO roles (id, organization_id, key, name, salary_type, salary_rate, bonus_type, permissions) \
-         VALUES ($1,$2,$3,$4,COALESCE($5,'none'),COALESCE($6::float8::numeric,0),COALESCE($7,'none'),COALESCE($8,'{}'))",
+        "INSERT INTO roles (id, organization_id, key, name, salary_type, salary_rate, bonus_type, permissions, bonus_rate) \
+         VALUES ($1,$2,$3,$4,COALESCE($5,'none'),COALESCE($6::float8::numeric,0),COALESCE($7,'none'),COALESCE($8,'{}'),COALESCE($9::float8::numeric,0))",
     )
     .bind(id)
     .bind(ctx.org_id)
@@ -115,6 +120,7 @@ async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<Rol
     .bind(dto.salary_rate)
     .bind(dto.bonus_type)
     .bind(dto.permissions)
+    .bind(dto.bonus_rate)
     .execute(&s.pool)
     .await?;
     one(State(s), ctx, Path(id)).await
@@ -134,7 +140,7 @@ async fn update(
     }
     sqlx::query(
         "UPDATE roles SET name=$3, salary_type=COALESCE($4,salary_type), salary_rate=COALESCE($5::float8::numeric,salary_rate), \
-         bonus_type=COALESCE($6,bonus_type), permissions=COALESCE($7,permissions) \
+         bonus_type=COALESCE($6,bonus_type), permissions=COALESCE($7,permissions), bonus_rate=COALESCE($8::float8::numeric,bonus_rate) \
          WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL",
     )
     .bind(id)
@@ -144,6 +150,7 @@ async fn update(
     .bind(dto.salary_rate)
     .bind(dto.bonus_type)
     .bind(dto.permissions)
+    .bind(dto.bonus_rate)
     .execute(&s.pool)
     .await?;
     one(State(s), ctx, Path(id)).await

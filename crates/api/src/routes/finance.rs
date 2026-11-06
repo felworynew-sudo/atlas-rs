@@ -106,10 +106,11 @@ pub struct WalletView {
     pub id: Uuid,
     pub name: String,
     pub store_id: Option<Uuid>,
+    pub is_cash_register: bool,
     pub balance: f64,
 }
 
-const SELECT_WALLET: &str = "SELECT w.id, w.name, w.store_id, \
+const SELECT_WALLET: &str = "SELECT w.id, w.name, w.store_id, w.is_cash_register, \
      (SELECT COALESCE(SUM(t.delta),0) FROM wallet_transactions t WHERE t.wallet_id = w.id)::float8 AS balance \
      FROM wallets w WHERE w.organization_id=$1 AND w.deleted_at IS NULL AND ($2::uuid IS NULL OR w.id=$2) ORDER BY w.created_at";
 
@@ -118,6 +119,9 @@ const SELECT_WALLET: &str = "SELECT w.id, w.name, w.store_id, \
 pub struct WalletDto {
     pub name: String,
     pub store_id: Option<Uuid>,
+    /// «Наличные с кассы»: расходы и оплата приёмок с этого счёта входят в расчёт наличных смены
+    #[serde(default)]
+    pub is_cash_register: bool,
 }
 
 async fn wallets_list(State(s): State<AppState>, ctx: AuthContext) -> AppResult<Json<Vec<WalletView>>> {
@@ -155,11 +159,12 @@ async fn wallet_create(State(s): State<AppState>, ctx: AuthContext, Json(dto): J
     ctx.require("settings.edit")?;
     check_wallet_dto(&s, &ctx, &dto).await?;
     let id = Uuid::new_v4();
-    sqlx::query("INSERT INTO wallets (id, organization_id, store_id, name) VALUES ($1,$2,$3,$4)")
+    sqlx::query("INSERT INTO wallets (id, organization_id, store_id, name, is_cash_register) VALUES ($1,$2,$3,$4,$5)")
         .bind(id)
         .bind(ctx.org_id)
         .bind(dto.store_id)
         .bind(dto.name.trim())
+        .bind(dto.is_cash_register)
         .execute(&s.pool)
         .await?;
     wallet_one(State(s), ctx, Path(id)).await
@@ -173,11 +178,12 @@ async fn wallet_update(
 ) -> AppResult<Json<WalletView>> {
     ctx.require("settings.edit")?;
     check_wallet_dto(&s, &ctx, &dto).await?;
-    let res = sqlx::query("UPDATE wallets SET name=$3, store_id=$4 WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL")
+    let res = sqlx::query("UPDATE wallets SET name=$3, store_id=$4, is_cash_register=$5 WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL")
         .bind(id)
         .bind(ctx.org_id)
         .bind(dto.name.trim())
         .bind(dto.store_id)
+        .bind(dto.is_cash_register)
         .execute(&s.pool)
         .await?;
     if res.rows_affected() == 0 {

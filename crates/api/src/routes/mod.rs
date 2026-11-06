@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod clients;
+pub mod checklist;
 pub mod complex_sales;
 pub mod documents;
 pub mod finance;
@@ -12,8 +13,10 @@ pub mod products;
 pub mod refs;
 pub mod reports;
 pub mod roles;
+pub mod salary;
 pub mod sales;
 pub mod settings;
+pub mod shifts;
 pub mod stocks;
 pub mod supply_orders;
 pub mod stores;

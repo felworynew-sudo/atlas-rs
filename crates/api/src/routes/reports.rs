@@ -436,6 +436,18 @@ async fn profit_report(State(s): State<AppState>, ctx: AuthContext, Query(q): Qu
         .collect();
     let monthly_total: f64 = monthly.iter().map(|m| m.1).sum();
 
+    // разница закрытия смен (недосдача < 0, излишек > 0) за период
+    let (shift_diff,): (f64,) = sqlx::query_as(
+        "SELECT COALESCE(SUM(diff),0)::float8 FROM shifts WHERE organization_id=$1 AND store_id = ANY($2) AND closed_at >= $3 AND closed_at < $4",
+    )
+    .bind(org)
+    .bind(&sc.stores)
+    .bind(sc.from)
+    .bind(sc.to)
+    .fetch_one(&s.pool)
+    .await?;
+    let salaries = crate::routes::salary::total_accrued(&s.pool, org, sc.from, sc.to, &sc.stores).await?;
+
     let res = pnl(&PnlInput {
         sales,
         cost_of_sales: cost,
@@ -443,8 +455,8 @@ async fn profit_report(State(s): State<AppState>, ctx: AuthContext, Query(q): Qu
         returns: returns_sum,
         writeoffs,
         revision_diff,
-        shift_diff: 0.0,
-        salaries: 0.0,
+        shift_diff,
+        salaries,
         bank_commission: commission,
         operating_expenses: operating,
         monthly_expenses: monthly_total,
@@ -481,8 +493,8 @@ async fn profit_report(State(s): State<AppState>, ctx: AuthContext, Query(q): Qu
         "returns": round2(returns_sum),
         "writeoffs": round2(writeoffs),
         "revisionDiff": round2(revision_diff),
-        "shiftDiff": 0.0,
-        "salaries": 0.0,
+        "shiftDiff": round2(shift_diff),
+        "salaries": salaries,
         "bankCommission": round2(commission),
         "expenses": { "total": round2(operating), "byCategory": by_category.iter().map(|(name, v)| json!({
             "name": name.clone().unwrap_or_else(|| "Без категории".into()), "amount": round2(*v) })).collect::<Vec<_>>() },
