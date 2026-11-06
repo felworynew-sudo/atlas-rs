@@ -57,7 +57,11 @@ fn check_params(kind: &str, params: &Value) -> AppResult<Value> {
             if !["cash", "qr", "terminal", "other"].contains(&k) {
                 return Err(AppError::BadRequest("Неизвестный тип оплаты".into()));
             }
-            Ok(json!({ "kind": k }))
+            let commission = num("commission").unwrap_or(0.0);
+            if !(0.0..=100.0).contains(&commission) {
+                return Err(AppError::BadRequest("Комиссия от 0 до 100%".into()));
+            }
+            Ok(json!({ "kind": k, "commission": commission }))
         }
         "purchase_methods" => {
             let m = num("markupPercent").unwrap_or(0.0);
@@ -101,6 +105,10 @@ pub async fn seed_defaults(tx: &mut Transaction<'_, Postgres>, org_id: Uuid) -> 
         ("writeoff_reasons", "Брак".into(), json!({})),
         ("writeoff_reasons", "Истёк срок годности".into(), json!({})),
         ("writeoff_reasons", "Другое".into(), json!({})),
+        ("spending_categories", "Аренда".into(), json!({})),
+        ("spending_categories", "Коммунальные услуги".into(), json!({})),
+        ("spending_categories", "Реклама".into(), json!({})),
+        ("spending_categories", "Прочее".into(), json!({})),
     ];
     for p in (5..=50).step_by(5) {
         rows.push(("discounts", format!("{p}%"), json!({"type": "percent", "value": p as f64})));

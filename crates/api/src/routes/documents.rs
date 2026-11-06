@@ -171,6 +171,8 @@ pub struct SupplyDto {
     pub paid: bool,
     pub invoice_photo: Option<String>,
     pub comment: Option<String>,
+    /// счёт, с которого оплачена накладная (при `paid`)
+    pub wallet_id: Option<Uuid>,
     pub items: Vec<SupplyItemDto>,
 }
 
@@ -220,12 +222,15 @@ async fn supply_create(State(s): State<AppState>, ctx: AuthContext, Json(dto): J
         }
     }
     let total = round2(dto.items.iter().map(|i| i.qty * i.price).sum());
+    if let (true, Some(w)) = (dto.paid, dto.wallet_id) {
+        crate::routes::finance::check_wallet(&s.pool, ctx.org_id, w, dto.store_id).await?;
+    }
 
     let id = Uuid::new_v4();
     let mut tx = s.pool.begin().await?;
     sqlx::query(
         "INSERT INTO supplies (id, organization_id, store_id, supplier_id, order_id, user_id, supply_date, has_return, prices_changed, \
-         paid, invoice_photo, comment, total) VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7, current_date),$8,$9,$10,$11,$12,$13::float8)",
+         paid, invoice_photo, comment, total, wallet_id) VALUES ($1,$2,$3,$4,$5,$6,COALESCE($7, current_date),$8,$9,$10,$11,$12,$13::float8,$14)",
     )
     .bind(id)
     .bind(ctx.org_id)
@@ -240,8 +245,14 @@ async fn supply_create(State(s): State<AppState>, ctx: AuthContext, Json(dto): J
     .bind(&dto.invoice_photo)
     .bind(dto.comment.unwrap_or_default())
     .bind(total)
+    .bind(dto.wallet_id.filter(|_| dto.paid))
     .execute(&mut *tx)
     .await?;
+    if let (true, Some(w)) = (dto.paid, dto.wallet_id) {
+        // оплата накладной двигает деньги счёта; возврат поставщику — деньги приходят обратно
+        let delta = if dto.has_return { total } else { -total };
+        crate::routes::finance::add_tx(&mut tx, ctx.org_id, w, delta, "supply_payment", Some(id), "", ctx.user_id).await?;
+    }
     for it in &dto.items {
         sqlx::query("INSERT INTO supply_items (id, supply_id, product_id, qty, price) VALUES ($1,$2,$3,$4::float8,$5::float8)")
             .bind(Uuid::new_v4())
@@ -304,6 +315,7 @@ async fn supply_remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Pa
     .await?;
     let (store_id, order_id) = row.ok_or_else(|| AppError::NotFound("Приёмка не найдена".into()))?;
     ledger::reverse(&mut tx, ctx.org_id, store_id, id, "supply", ctx.user_id).await?;
+    crate::routes::finance::reverse_tx(&mut tx, id, "supply_payment", ctx.user_id).await?;
     sqlx::query("UPDATE supplies SET deleted_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
     if let Some(o) = order_id {
         refresh_order_status(&mut tx, o).await?;

@@ -37,6 +37,10 @@ pub fn app(state: AppState) -> Router {
         .nest("/api/writeoffs", routes::documents::writeoffs_router())
         .nest("/api/revisions", routes::documents::revisions_router())
         .nest("/api/supply-orders", routes::supply_orders::router())
+        .nest("/api/wallets", routes::finance::wallets_router())
+        .nest("/api/spendings", routes::finance::spendings_router())
+        .nest("/api/recurring-expenses", routes::finance::recurring_router())
+        .nest("/api/reports", routes::reports::router())
         .route("/api/permissions", get(routes::roles::list_permissions))
         .with_state(state)
 }

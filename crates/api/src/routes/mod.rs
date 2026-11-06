@@ -1,11 +1,13 @@
 pub mod auth;
 pub mod clients;
 pub mod documents;
+pub mod finance;
 pub mod health;
 pub mod lists;
 pub mod organizations;
 pub mod products;
 pub mod refs;
+pub mod reports;
 pub mod roles;
 pub mod sales;
 pub mod stocks;
