@@ -363,3 +363,6 @@ export interface ClientOrder {
   saleId: string | null;
   createdAt: string;
 }
+
+export interface Transfer { id: string; fromStoreId: string; toStoreId: string; transferDate: string; comment: string; amount: number; items: { productId: string; name: string; qty: number }[] }
+export interface Manufacture { id: string; storeId: string; productId: string; productName: string; qty: number; batch: string; manufactureDate: string; costTotal: number; ingredients: { productId: string; name: string; qty: number }[] }

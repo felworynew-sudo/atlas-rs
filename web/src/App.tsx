@@ -10,6 +10,10 @@ import ClientDetail from './pages/ClientDetail';
 import ClientOrders from './pages/ClientOrders';
 import ComplexSaleForm from './pages/ComplexSaleForm';
 import ComplexSales from './pages/ComplexSales';
+import ManufactureForm from './pages/ManufactureForm';
+import Manufactures from './pages/Manufactures';
+import TransferForm from './pages/TransferForm';
+import Transfers from './pages/Transfers';
 import Clients from './pages/Clients';
 import ProductStats from './pages/ProductStats';
 import Settings from './pages/Settings';
@@ -64,6 +68,10 @@ export default function App() {
         <Route path="/complex-sales" element={<ComplexSales />} />
         <Route path="/complex-sale/:id" element={<ComplexSaleForm />} />
         <Route path="/client-orders" element={<ClientOrders />} />
+        <Route path="/transfers" element={<Transfers />} />
+        <Route path="/transfer/new" element={<TransferForm />} />
+        <Route path="/manufactures" element={<Manufactures />} />
+        <Route path="/manufacture/new" element={<ManufactureForm />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/settings/:section" element={<Settings />} />
         <Route path="/spendings" element={<Spendings />} />

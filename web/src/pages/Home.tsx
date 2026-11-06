@@ -23,6 +23,8 @@ const TILES: Tile[] = [
   { title: 'Чеклист', icon: 'check', to: '/checklist', perm: 'checklist.view', module: 'checklist' },
   { title: 'Списания', icon: 'trash', to: '/writeoffs', perm: 'writeoff.history', module: 'writeoffs' },
   { title: 'Заказы от клиентов', icon: 'bell', to: '/client-orders', perm: 'client_orders.view', module: 'marketplace' },
+  { title: 'Перемещения', icon: 'truck', to: '/transfers', perm: 'transfer.view', module: 'transfers' },
+  { title: 'Производство', icon: 'clipboard', to: '/manufactures', perm: 'manufacture.view', module: 'manufacture' },
   { title: 'Остатки товаров', icon: 'clipboard', to: '/stocks', perm: 'stock.view', module: 'stocks' },
   { title: 'Товары, услуги и ингредиенты', icon: 'pricetags', to: '/products', perm: 'product.view' },
   { title: 'Расходы', icon: 'cart', to: '/spendings', perm: 'spending.view', module: 'spendings' },
