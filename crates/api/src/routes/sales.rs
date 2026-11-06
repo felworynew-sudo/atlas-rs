@@ -586,6 +586,7 @@ pub async fn remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<
     }
     sqlx::query("UPDATE sales SET deleted_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
+    crate::events::log(&s.pool, ctx.org_id, Some(store_id), ctx.user_id, "sale_deleted", &format!("Удалена продажа {}", &id.simple().to_string()[..8])).await;
     Ok(Json(json!({ "success": true })))
 }
 

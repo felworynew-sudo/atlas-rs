@@ -74,6 +74,31 @@ pub async fn reverse(
     Ok(())
 }
 
+/// Сторно документа, затрагивающего несколько филиалов: обратные движения только в `store_id`.
+pub async fn reverse_in_store(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+    store_id: Uuid,
+    ref_id: Uuid,
+    kind: &str,
+    user_id: Uuid,
+) -> AppResult<()> {
+    let net: Vec<(Uuid, f64)> = sqlx::query_as(
+        "SELECT product_id, SUM(delta)::float8 FROM product_movements WHERE ref_id=$1 AND kind=$2 AND store_id=$3 GROUP BY product_id",
+    )
+    .bind(ref_id)
+    .bind(kind)
+    .bind(store_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for (pid, sum) in net {
+        if sum.abs() > 1e-9 {
+            apply(tx, org_id, store_id, pid, kind, -sum, Some(ref_id), user_id).await?;
+        }
+    }
+    Ok(())
+}
+
 /// Текущий остаток с блокировкой строки (создаёт нулевую строку при отсутствии).
 pub async fn lock_qty(tx: &mut Transaction<'_, Postgres>, store_id: Uuid, product_id: Uuid) -> AppResult<f64> {
     sqlx::query("INSERT INTO store_stock (product_id, store_id, qty) VALUES ($1,$2,0) ON CONFLICT DO NOTHING")

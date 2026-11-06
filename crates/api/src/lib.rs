@@ -1,6 +1,7 @@
 //! Atlas API: ядро (вход, организации, филиалы, роли, сотрудники).
 pub mod auth;
 pub mod error;
+pub mod events;
 pub mod ledger;
 pub mod routes;
 
@@ -45,6 +46,11 @@ pub fn app(state: AppState) -> Router {
         .nest("/api/complex-sale-templates", routes::complex_sales::templates_router())
         .nest("/api/orders", routes::orders::router())
         .nest("/api/marketplace", routes::orders::marketplace_router())
+        .nest("/api/transfers", routes::transfers::transfers_router())
+        .nest("/api/manufactures", routes::transfers::manufactures_router())
+        .nest("/api/payments", routes::misc::payments_router())
+        .nest("/api/updates", routes::misc::updates_router())
+        .merge(routes::misc::labels_router())
         .nest("/api/shifts", routes::shifts::router())
         .nest("/api/salary", routes::salary::router())
         .nest("/api/salary-payments", routes::salary::payments_router())

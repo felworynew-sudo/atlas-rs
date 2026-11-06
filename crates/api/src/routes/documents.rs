@@ -321,6 +321,7 @@ async fn supply_remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Pa
         refresh_order_status(&mut tx, o).await?;
     }
     tx.commit().await?;
+    crate::events::log(&s.pool, ctx.org_id, Some(store_id), ctx.user_id, "supply_deleted", "Удалена приёмка").await;
     Ok(ok())
 }
 
@@ -462,6 +463,7 @@ async fn writeoff_remove(State(s): State<AppState>, ctx: AuthContext, Path(id): 
     ledger::reverse(&mut tx, ctx.org_id, store_id, id, "writeoff", ctx.user_id).await?;
     sqlx::query("UPDATE writeoffs SET deleted_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
+    crate::events::log(&s.pool, ctx.org_id, Some(store_id), ctx.user_id, "writeoff_deleted", "Удалено списание").await;
     Ok(ok())
 }
 
@@ -633,5 +635,6 @@ async fn revision_remove(State(s): State<AppState>, ctx: AuthContext, Path(id): 
     ledger::reverse(&mut tx, ctx.org_id, store_id, id, "revision", ctx.user_id).await?;
     sqlx::query("UPDATE revisions SET deleted_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
     tx.commit().await?;
+    crate::events::log(&s.pool, ctx.org_id, Some(store_id), ctx.user_id, "revision_deleted", "Удалена ревизия").await;
     Ok(ok())
 }

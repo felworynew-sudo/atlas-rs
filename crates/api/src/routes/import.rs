@@ -17,6 +17,7 @@ use axum::{
     routing::{delete, get, post},
     Json, Router,
 };
+use crate::routes::transfers::{mf_create, IngredientDto, ManufactureDto};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -28,6 +29,7 @@ pub fn import_router() -> Router<AppState> {
     Router::new()
         .route("/products", post(import_products))
         .route("/sales", post(import_sales))
+        .route("/manufactures", post(import_manufactures))
         .route("/batches/{id}", delete(revert_batch))
 }
 
@@ -531,4 +533,121 @@ async fn export_clients(State(s): State<AppState>, ctx: AuthContext) -> AppResul
         out.push(vec![r.0, r.1, r.2, n2(r.3), r.4.to_string(), n2(r.5)]);
     }
     Ok(csv_response("clients", out))
+}
+
+// =========================== производство ===========================
+struct MfGroup {
+    line: usize,
+    date: Option<DateTime<Utc>>,
+    product: Option<Uuid>,
+    qty: f64,
+    batch: String,
+    ingredients: Vec<(Uuid, f64)>,
+}
+
+/// Импорт производства: строка с товаром — одно производство по рецепту; строки с одинаковым «№ производства»
+/// и колонками «ингредиент»/«количество ингредиента» заменяют рецепт фактическим расходом.
+async fn import_manufactures(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<ImportDto>) -> AppResult<Json<Value>> {
+    ctx.require("settings.export_import")?;
+    ctx.require("manufacture.view")?;
+    check_store(&s.pool, &ctx, dto.store_id).await?;
+    let table = Table::read(&dto.content)?;
+    let c_num = table.col(&["№ производства", "номер", "number"]);
+    let c_date = table.col(&["дата", "date"]);
+    let c_product = table.col(&["товар", "product", "артикул"]);
+    let c_qty = table.col(&["количество", "qty"]);
+    let c_batch = table.col(&["партия", "batch"]);
+    let c_ing = table.col(&["ингредиент", "ingredient"]);
+    let c_ing_qty = table.col(&["количество ингредиента", "ingredient qty"]);
+    if c_product.is_none() && c_ing.is_none() {
+        return Err(AppError::BadRequest("В файле нужны колонки «товар» и «количество»".into()));
+    }
+    let prods: Vec<(Uuid, String, Vec<String>)> =
+        sqlx::query_as("SELECT id, name, barcodes FROM products WHERE organization_id=$1 AND deleted_at IS NULL")
+            .bind(ctx.org_id)
+            .fetch_all(&s.pool)
+            .await?;
+    let mut by_key: HashMap<String, Uuid> = HashMap::new();
+    for (id, name, barcodes) in &prods {
+        by_key.insert(name.to_lowercase(), *id);
+        by_key.insert(id.to_string(), *id);
+        for b in barcodes {
+            by_key.insert(b.to_lowercase(), *id);
+        }
+    }
+    let mut errors: Vec<Value> = Vec::new();
+    let mut groups: Vec<MfGroup> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for (line, row) in &table.rows {
+        let mut fail = |m: String| errors.push(json!({ "row": line, "message": format!("Строка {line}: {m}") }));
+        let num = cell(row, c_num).to_string();
+        let key = if num.is_empty() { format!("line-{line}") } else { num };
+        let gi = *index.entry(key).or_insert_with(|| {
+            groups.push(MfGroup { line: *line, date: None, product: None, qty: 0.0, batch: String::new(), ingredients: vec![] });
+            groups.len() - 1
+        });
+        let product = cell(row, c_product);
+        if !product.is_empty() {
+            let Some(pid) = by_key.get(&product.to_lowercase()).copied() else {
+                fail(format!("не найден товар «{product}»"));
+                continue;
+            };
+            let Some(qty) = parse_number(cell(row, c_qty)).filter(|q| *q > 0.0) else {
+                fail("количество должно быть больше нуля".into());
+                continue;
+            };
+            let date_raw = cell(row, c_date);
+            let date = if date_raw.is_empty() { None } else { parse_date(date_raw) };
+            if !date_raw.is_empty() && date.is_none() {
+                fail(format!("некорректная дата «{date_raw}»"));
+                continue;
+            }
+            let g = &mut groups[gi];
+            g.product = Some(pid);
+            g.qty = qty;
+            g.date = date;
+            g.batch = cell(row, c_batch).to_string();
+        }
+        let ing = cell(row, c_ing);
+        if !ing.is_empty() {
+            let Some(iid) = by_key.get(&ing.to_lowercase()).copied() else {
+                fail(format!("не найден ингредиент «{ing}»"));
+                continue;
+            };
+            let Some(q) = parse_number(cell(row, c_ing_qty)).filter(|q| *q > 0.0) else {
+                fail("количество ингредиента должно быть больше нуля".into());
+                continue;
+            };
+            groups[gi].ingredients.push((iid, q));
+        }
+    }
+    let mut created = 0;
+    let mut valid = 0;
+    for g in &groups {
+        if g.product.is_none() {
+            errors.push(json!({ "row": g.line, "message": format!("Строка {}: не указан товар производства", g.line) }));
+            continue;
+        }
+        valid += 1;
+        if dto.dry_run {
+            continue;
+        }
+        let req = ManufactureDto {
+            store_id: dto.store_id,
+            product_id: g.product.expect("checked"),
+            qty: g.qty,
+            batch: Some(g.batch.clone()),
+            manufacture_date: g.date,
+            ingredients: if g.ingredients.is_empty() {
+                None
+            } else {
+                Some(g.ingredients.iter().map(|(p, q)| IngredientDto { product_id: *p, qty: *q }).collect())
+            },
+        };
+        match mf_create(State(s.clone()), ctx.clone(), Json(req)).await {
+            Ok(_) => created += 1,
+            Err(e) => errors.push(json!({ "row": g.line, "message": format!("Строка {}: {e}", g.line) })),
+        }
+    }
+    Ok(Json(json!({ "dryRun": dto.dry_run, "manufactures": if dto.dry_run { valid } else { created }, "errors": errors })))
 }

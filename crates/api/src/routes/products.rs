@@ -489,9 +489,35 @@ async fn update(
 ) -> AppResult<Json<ProductView>> {
     ctx.require("product.view")?;
     normalize(&mut dto)?;
+    let old = fetch_views(&s, &ctx, None, None, Some(id), None, true).await?.into_iter().next();
     let mut tx = s.pool.begin().await?;
     save(&mut tx, &s.pool, ctx.org_id, id, &dto, false).await?;
     tx.commit().await?;
+    if let Some(old) = old {
+        // изменения цен попадают в ленту «Обновления»
+        if (old.purchase_price - dto.purchase_price).abs() > 1e-9 {
+            let text = format!(
+                "Закупочная цена товара «{}» изменена {} → {} ₽",
+                dto.name,
+                crate::events::fmt(old.purchase_price),
+                crate::events::fmt(dto.purchase_price)
+            );
+            crate::events::log(&s.pool, ctx.org_id, None, ctx.user_id, "price_changed", &text).await;
+        }
+        for new in &dto.stores {
+            if let Some(o) = old.stores.iter().find(|x| x.store_id == new.store_id) {
+                if (o.sale_price - new.sale_price).abs() > 1e-9 {
+                    let text = format!(
+                        "Цена товара «{}» изменена {} → {} ₽",
+                        dto.name,
+                        crate::events::fmt(o.sale_price),
+                        crate::events::fmt(new.sale_price)
+                    );
+                    crate::events::log(&s.pool, ctx.org_id, Some(new.store_id), ctx.user_id, "price_changed", &text).await;
+                }
+            }
+        }
+    }
     one(State(s), ctx, Path(id)).await
 }
 
