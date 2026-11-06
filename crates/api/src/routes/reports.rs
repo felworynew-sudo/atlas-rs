@@ -39,6 +39,10 @@ pub struct ReportQuery {
     pub store_id: Option<Uuid>,
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
+    /// Период датами `YYYY-MM-DD` (включительно): границы суток считаются по часовому поясу филиала.
+    /// Имеет приоритет над `from`/`to`.
+    pub from_date: Option<NaiveDate>,
+    pub to_date: Option<NaiveDate>,
     /// payment (по умолчанию) | purchase | user
     pub group_by: Option<String>,
     /// json (по умолчанию) | csv
@@ -49,14 +53,17 @@ struct Scope {
     stores: Vec<Uuid>,
     from: DateTime<Utc>,
     to: DateTime<Utc>,
+    /// первый и последний день периода (включительно) для документов с датой без времени
+    from_day: NaiveDate,
+    to_day: NaiveDate,
 }
 
 impl Scope {
     fn from_date(&self) -> NaiveDate {
-        self.from.date_naive()
+        self.from_day
     }
     fn to_date(&self) -> NaiveDate {
-        (self.to - Duration::seconds(1)).date_naive()
+        self.to_day
     }
 }
 
@@ -83,12 +90,31 @@ async fn scope(pool: &PgPool, ctx: &AuthContext, q: &ReportQuery) -> AppResult<S
             }
         }
     };
+    if let (Some(fd), Some(td)) = (q.from_date, q.to_date) {
+        if td < fd {
+            return Err(AppError::BadRequest("Начало периода должно быть раньше конца".into()));
+        }
+        // сутки `[fd 00:00, td+1 00:00)` по часовому поясу первого филиала отчёта
+        let tz: String = match stores.first() {
+            Some(id) => sqlx::query_as::<_, (String,)>("SELECT timezone FROM stores WHERE id=$1").bind(id).fetch_one(pool).await?.0,
+            None => "UTC".into(),
+        };
+        let (from, to): (DateTime<Utc>, DateTime<Utc>) =
+            sqlx::query_as("SELECT ($1::date)::timestamp AT TIME ZONE $3::text, (($2::date + 1))::timestamp AT TIME ZONE $3::text")
+                .bind(fd)
+                .bind(td)
+                .bind(&tz)
+                .fetch_one(pool)
+                .await?;
+        return Ok(Scope { stores, from, to, from_day: fd, to_day: td });
+    }
     let to = q.to.unwrap_or_else(|| Utc::now() + Duration::days(1));
     let from = q.from.unwrap_or(to - Duration::days(7));
     if from >= to {
         return Err(AppError::BadRequest("Начало периода должно быть раньше конца".into()));
     }
-    Ok(Scope { stores, from, to })
+    let (from_day, to_day) = (from.date_naive(), (to - Duration::seconds(1)).date_naive());
+    Ok(Scope { stores, from, to, from_day, to_day })
 }
 
 pub fn csv_response(name: &str, rows: Vec<Vec<String>>) -> Response {
@@ -706,7 +732,7 @@ async fn home_stats(State(s): State<AppState>, ctx: AuthContext, Query(q): Query
     let mut out = serde_json::Map::new();
     for (key, shift) in [("today", 0), ("weekAgo", 7)] {
         let from = today - Duration::days(shift);
-        let sc = Scope { stores: base.stores.clone(), from, to: from + Duration::days(1) };
+        let sc = Scope { stores: base.stores.clone(), from, to: from + Duration::days(1), from_day: from.date_naive(), to_day: from.date_naive() };
         let rows = sale_rows(&s.pool, ctx.org_id, &sc).await?;
         let total: f64 = rows.iter().map(|r| r.total).sum();
         let count = rows.len();

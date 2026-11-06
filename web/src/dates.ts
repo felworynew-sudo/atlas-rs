@@ -6,6 +6,18 @@ export const todayLocal = (): string => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 };
 
+/** Дата `n` дней назад (местная), `YYYY-MM-DD`. */
+export const daysAgoLocal = (n: number): string => {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
+export const monthStartLocal = (): string => {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-01`;
+};
+
 export const startOfDay = (day: string): string => new Date(`${day}T00:00:00`).toISOString();
 export const endOfDay = (day: string): string => new Date(new Date(`${day}T00:00:00`).getTime() + 86_400_000).toISOString();
 

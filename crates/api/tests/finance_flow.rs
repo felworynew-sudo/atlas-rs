@@ -236,6 +236,16 @@ async fn finance_flow() {
     eq(&pl["netProfit"], -32542.0);
     eq(&pl["supplies"], 1400.0);
 
+    // тот же период датами (границы суток — по часовому поясу филиала): итоги совпадают,
+    // а ежемесячный расход за весь месяц — ровно 30 000
+    let last = next.pred_opt().unwrap();
+    let (st, pl2) = call(&env, Method::GET, &format!("/api/reports/profit?fromDate={first}&toDate={last}&storeId={store}"), Some(t), None).await;
+    assert_eq!(st, StatusCode::OK, "{pl2}");
+    eq(&pl2["sales"], 300.0);
+    eq(&pl2["monthlyExpenses"]["total"], 30000.0);
+    let (st, _) = call(&env, Method::GET, &format!("/api/reports/profit?fromDate={last}&toDate={first}&storeId={store}"), Some(t), None).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST); // конец раньше начала
+
     // отчёт по товарам
     let (_, pr) = call(&env, Method::GET, &format!("/api/reports/products?{period}"), Some(t), None).await;
     let m = &pr["byProduct"][0];

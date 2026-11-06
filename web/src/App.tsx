@@ -5,7 +5,14 @@ import NewSale from './pages/NewSale';
 import ProductEdit from './pages/ProductEdit';
 import Products from './pages/Products';
 import SaleDetail from './pages/SaleDetail';
+import ProductStats from './pages/ProductStats';
+import ProfitStats from './pages/ProfitStats';
+import Reports from './pages/Reports';
 import RevisionForm from './pages/RevisionForm';
+import RevisionStats from './pages/RevisionStats';
+import SalesStats from './pages/SalesStats';
+import SpendingForm from './pages/SpendingForm';
+import Spendings from './pages/Spendings';
 import Revisions from './pages/Revisions';
 import SalesHistory from './pages/SalesHistory';
 import StockCard from './pages/StockCard';
@@ -40,6 +47,13 @@ export default function App() {
         <Route path="/supply-order/:id" element={<SupplyOrderForm />} />
         <Route path="/writeoffs" element={<Writeoffs />} />
         <Route path="/writeoff/new" element={<WriteoffForm />} />
+        <Route path="/spendings" element={<Spendings />} />
+        <Route path="/spending/new" element={<SpendingForm />} />
+        <Route path="/reports" element={<Reports />} />
+        <Route path="/reports/sales" element={<SalesStats />} />
+        <Route path="/reports/profit" element={<ProfitStats />} />
+        <Route path="/reports/products" element={<ProductStats />} />
+        <Route path="/reports/revisions" element={<RevisionStats />} />
         <Route path="/revisions" element={<Revisions />} />
         <Route path="/revision/:id" element={<RevisionForm />} />
         <Route path="*" element={<Navigate to="/" replace />} />

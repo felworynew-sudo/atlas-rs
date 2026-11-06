@@ -63,6 +63,19 @@ function safeJson(text: string): unknown {
   }
 }
 
+/** Скачивание CSV-отчёта: запрос с токеном и сохранение файла из ответа. */
+export async function downloadCsv(path: string, query: Query, filename: string): Promise<void> {
+  const token = getToken();
+  const res = await fetch(buildUrl(path, { ...query, format: 'csv' }), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  if (!res.ok) throw new ApiError(res.status, `Ошибка ${res.status}`);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ---- типы ответов сервера (только используемые поля) ----
 export interface UserView {
   id: string;
@@ -156,6 +169,59 @@ export interface Writeoff {
   comment: string;
   writeoffDate: string;
 }
+export interface Spending {
+  id: string;
+  storeId: string;
+  categoryId: string | null;
+  categoryName: string | null;
+  details: string;
+  amount: number;
+  walletId: string | null;
+  spendingDate: string;
+  kind: 'operating' | 'capital';
+}
+export interface SalesGroup { id: string | null; name: string; sales: number; count: number; returns: number; returnsCount: number }
+export interface SalesReport {
+  totals: { sales: number; count: number; avgCheck: number; returns: number; returnsCount: number };
+  groups: SalesGroup[];
+  days: { date: string; sales: number; count: number }[];
+}
+export interface ProfitReport {
+  sales: number;
+  costOfSales: number;
+  paidByBonus: number;
+  grossIncome: number;
+  returns: number;
+  writeoffs: number;
+  revisionDiff: number;
+  shiftDiff: number;
+  salaries: number;
+  bankCommission: number;
+  expenses: { total: number; byCategory: { name: string; amount: number }[] };
+  monthlyExpenses: { total: number; items: { name: string; amount: number }[] };
+  operatingProfit: number;
+  capitalExpenses: number;
+  netProfit: number;
+  supplies: number;
+  checks: number;
+}
+export interface ProductAgg {
+  id: string | null;
+  name: string;
+  soldQty: number;
+  soldSum: number;
+  cost: number;
+  profit: number;
+  margin: number;
+  checks: number;
+  writeoffQty: number;
+  writeoffSum: number;
+  supplyQty: number;
+  supplySum: number;
+}
+export interface ProductsReport { byCategory: ProductAgg[]; bySupplier: ProductAgg[]; byProduct: ProductAgg[] }
+export interface RevisionLine { name: string; was: number; became: number; diffAtPurchase: number; diffAtSale: number }
+export interface RevisionsReport { minus: number; plus: number; balance: number; minusList: RevisionLine[]; plusList: RevisionLine[] }
 export interface RevisionItem { productId: string; name: string; systemQty: number; factQty: number; diffAmount: number }
 export interface Revision { id: string; storeId: string; categoryId: string | null; totalDiff: number; revisionDate: string; comment: string; items: RevisionItem[] }
 export interface Client { id: string; name: string; phone: string; bonusBalance: number; bonusLevel: number | null; punches: number }
