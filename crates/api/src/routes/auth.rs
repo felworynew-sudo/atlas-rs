@@ -120,6 +120,8 @@ async fn signup(State(state): State<AppState>, Json(dto): Json<SignupDto>) -> Ap
             .await?;
     }
 
+    super::refs::seed_default_units(&mut tx, org_id).await?;
+
     let user_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO users (id, organization_id, email, name, password_hash, role_id, store_ids) \

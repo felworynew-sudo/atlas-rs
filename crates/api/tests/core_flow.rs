@@ -28,6 +28,8 @@ async fn setup() -> Env {
         }
     };
     let pool = PgPoolOptions::new().max_connections(5).connect(&url).await.unwrap();
+    // чистая схема на каждый запуск (тестовая БД может быть постоянной)
+    sqlx::raw_sql("DROP SCHEMA public CASCADE; CREATE SCHEMA public;").execute(&pool).await.unwrap();
     MIGRATOR.run(&pool).await.unwrap();
     Env { router: app(AppState { pool, jwt_secret: "test-secret".into() }), _pg: pg }
 }
