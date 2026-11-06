@@ -1,0 +1,29 @@
+# Atlas (Rust)
+
+Воссоздание CRM «Атлас» по каталогу `D:\Atlas-catalog` (ТЗ). Стек: axum 0.8, sqlx 0.9 (PostgreSQL), argon2, JWT.
+
+## Состояние
+Сделано (шаг 1 по порядку из `rust-implementation.md`):
+- `crates/domain` — модули организации (17), 51 право, роли «Админ»/«Продавец»; юнит-тесты.
+- `crates/api` — миграция `0001_core.sql`; вход/регистрация, организации (модули), филиалы, роли, сотрудники, справочник прав; единый формат ошибок `{statusCode, message, error}`.
+- `tests/core_flow.rs` — сквозной тест на реальном PostgreSQL.
+
+Дальше: каталог (категории, поставщики, единицы, товары), продажа/возврат, остатки и журнал движений, приёмка/списание/ревизия, расходы, отчёты.
+
+## Запуск
+```bash
+export DATABASE_URL=postgres://postgres:secret@127.0.0.1:54329/atlas
+export JWT_SECRET=change-me
+cargo run -p atlas-api        # слушает 0.0.0.0:8080, миграции применяются при старте
+```
+
+## Тесты
+```bash
+cargo test -p atlas-domain
+TEST_DATABASE_URL=postgres://postgres:secret@127.0.0.1:54329/atlas_test cargo test -p atlas-api
+```
+Без `TEST_DATABASE_URL` тест пытается скачать встроенный PostgreSQL с GitHub API (может упереться в rate-limit).
+
+## Заметки по окружению
+- Диск D почти полон: в `Cargo.toml` отключена отладочная информация (`debug = 0`), `target` ≈ 1 ГБ.
+- Локальный PostgreSQL 18.6 лежит в `C:\Users\shika\atlas-pg` (порт 54329, пароль `secret`, только для разработки).
