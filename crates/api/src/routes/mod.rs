@@ -1,8 +1,12 @@
 pub mod auth;
+pub mod clients;
 pub mod health;
+pub mod lists;
 pub mod organizations;
 pub mod products;
 pub mod refs;
 pub mod roles;
+pub mod sales;
+pub mod stocks;
 pub mod stores;
 pub mod users;

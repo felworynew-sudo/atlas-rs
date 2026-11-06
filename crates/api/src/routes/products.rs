@@ -138,7 +138,7 @@ pub struct ListQuery {
 }
 
 /// Себестоимость: узлы всех товаров организации.
-async fn cost_nodes(pool: &sqlx::PgPool, org_id: Uuid) -> AppResult<HashMap<Uuid, Node<Uuid>>> {
+pub async fn cost_nodes(pool: &sqlx::PgPool, org_id: Uuid) -> AppResult<HashMap<Uuid, Node<Uuid>>> {
     let prods: Vec<(Uuid, f64, f64, bool)> = sqlx::query_as(
         "SELECT id, purchase_price::float8, extra_cost::float8, is_composite FROM products WHERE organization_id=$1 AND deleted_at IS NULL",
     )

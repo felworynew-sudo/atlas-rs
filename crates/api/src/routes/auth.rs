@@ -121,6 +121,7 @@ async fn signup(State(state): State<AppState>, Json(dto): Json<SignupDto>) -> Ap
     }
 
     super::refs::seed_default_units(&mut tx, org_id).await?;
+    super::lists::seed_defaults(&mut tx, org_id).await?;
 
     let user_id = Uuid::new_v4();
     sqlx::query(

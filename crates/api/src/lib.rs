@@ -1,6 +1,7 @@
 //! Atlas API: ядро (вход, организации, филиалы, роли, сотрудники).
 pub mod auth;
 pub mod error;
+pub mod ledger;
 pub mod routes;
 
 use axum::{routing::get, Router};
@@ -27,6 +28,11 @@ pub fn app(state: AppState) -> Router {
         .nest("/api/suppliers", routes::refs::suppliers_router())
         .nest("/api/product-units", routes::refs::units_router())
         .nest("/api/products", routes::products::router())
+        .nest("/api/lists", routes::lists::router())
+        .nest("/api/clients", routes::clients::router())
+        .nest("/api/saved-carts", routes::clients::saved_carts_router())
+        .nest("/api/sales", routes::sales::router())
+        .nest("/api/stocks", routes::stocks::router())
         .route("/api/permissions", get(routes::roles::list_permissions))
         .with_state(state)
 }
