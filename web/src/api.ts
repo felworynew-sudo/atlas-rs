@@ -79,6 +79,7 @@ export async function downloadCsv(path: string, query: Query, filename: string):
 // ---- типы ответов сервера (только используемые поля) ----
 export interface UserView {
   id: string;
+  roleId?: string;
   organizationId: string;
   email: string;
   name: string;
@@ -224,7 +225,35 @@ export interface RevisionLine { name: string; was: number; became: number; diffA
 export interface RevisionsReport { minus: number; plus: number; balance: number; minusList: RevisionLine[]; plusList: RevisionLine[] }
 export interface RevisionItem { productId: string; name: string; systemQty: number; factQty: number; diffAmount: number }
 export interface Revision { id: string; storeId: string; categoryId: string | null; totalDiff: number; revisionDate: string; comment: string; items: RevisionItem[] }
-export interface Client { id: string; name: string; phone: string; bonusBalance: number; bonusLevel: number | null; punches: number }
+export interface Client {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  clientType: 'person' | 'organization';
+  discountId: string | null;
+  comment: string;
+  bonusBalance: number;
+  bonusLevel: number | null;
+  punches: number;
+  purchases: number;
+  purchasesSum: number;
+  lastPurchaseAt: string | null;
+  createdAt: string;
+}
+export interface Purchase { id: string; storeId: string; saleDate: string; total: number; returnedAmount: number }
+export interface Role {
+  id: string;
+  key: string;
+  name: string;
+  salaryType: 'none' | 'hour' | 'day' | 'month';
+  salaryRate: number;
+  bonusType: 'none' | 'percent_own_sales';
+  bonusRate: number;
+  permissions: string[];
+}
+export interface PermissionDef { key: string; title: string; module: string | null }
+export interface StaffUser { id: string; email: string; name: string; roleId: string; roleKey: string; roleName: string; storeIds: string[] }
 export interface SaleItem { id: string; productId: string | null; name: string; qty: number; price: number; returnedQty: number }
 export interface Sale {
   id: string;

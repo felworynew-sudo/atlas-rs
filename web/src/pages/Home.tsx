@@ -25,9 +25,9 @@ const TILES: Tile[] = [
   { title: 'Товары, услуги и ингредиенты', icon: 'pricetags', to: '/products', perm: 'product.view' },
   { title: 'Расходы', icon: 'cart', to: '/spendings', perm: 'spending.view', module: 'spendings' },
   { title: 'Отчеты', icon: 'chart', to: '/reports', perm: 'reports.view' },
-  { title: 'Клиенты', icon: 'people', perm: 'client.view', module: 'clients' },
+  { title: 'Клиенты', icon: 'people', to: '/clients', perm: 'client.view', module: 'clients' },
   { title: 'Ревизии', icon: 'edit', to: '/revisions', perm: 'revision.view', module: 'revisions' },
-  { title: 'Настройки', icon: 'settings', perm: 'settings.edit' },
+  { title: 'Настройки', icon: 'settings', to: '/settings', perm: 'settings.edit' },
 ];
 
 export default function Home() {

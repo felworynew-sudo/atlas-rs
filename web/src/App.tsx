@@ -5,7 +5,10 @@ import NewSale from './pages/NewSale';
 import ProductEdit from './pages/ProductEdit';
 import Products from './pages/Products';
 import SaleDetail from './pages/SaleDetail';
+import ClientDetail from './pages/ClientDetail';
+import Clients from './pages/Clients';
 import ProductStats from './pages/ProductStats';
+import Settings from './pages/Settings';
 import ProfitStats from './pages/ProfitStats';
 import Reports from './pages/Reports';
 import RevisionForm from './pages/RevisionForm';
@@ -47,6 +50,10 @@ export default function App() {
         <Route path="/supply-order/:id" element={<SupplyOrderForm />} />
         <Route path="/writeoffs" element={<Writeoffs />} />
         <Route path="/writeoff/new" element={<WriteoffForm />} />
+        <Route path="/clients" element={<Clients />} />
+        <Route path="/client/:id" element={<ClientDetail />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/settings/:section" element={<Settings />} />
         <Route path="/spendings" element={<Spendings />} />
         <Route path="/spending/new" element={<SpendingForm />} />
         <Route path="/reports" element={<Reports />} />

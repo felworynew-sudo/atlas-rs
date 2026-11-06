@@ -13,6 +13,8 @@ interface Session {
   login: (email: string, password: string) => Promise<void>;
   signup: (dto: { email: string; password: string; name: string; organizationName: string; storeName?: string }) => Promise<void>;
   logout: () => void;
+  /** Перечитать пользователя, организацию и филиалы (после изменения настроек). */
+  reload: () => Promise<void>;
 }
 
 const Ctx = createContext<Session | null>(null);
@@ -96,6 +98,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         await load();
       },
       logout,
+      reload: load,
     }),
     [ready, user, org, stores, storeId, load, logout],
   );
