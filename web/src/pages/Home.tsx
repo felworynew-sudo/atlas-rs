@@ -19,6 +19,8 @@ const TILES: Tile[] = [
   { title: 'История продаж', icon: 'clock', to: '/sales-history', perm: 'sale.history', module: 'simple_sales' },
   { title: 'Комплексные продажи', icon: 'file-text', perm: 'complex_sale.view', module: 'complex_sales' },
   { title: 'Приемки', icon: 'truck', to: '/supplies', perm: 'supply.history', module: 'supplies' },
+  { title: 'Смена', icon: 'hash', to: '/shift', perm: 'shift.view', module: 'shifts' },
+  { title: 'Чеклист', icon: 'check', to: '/checklist', perm: 'checklist.view', module: 'checklist' },
   { title: 'Списания', icon: 'trash', to: '/writeoffs', perm: 'writeoff.history', module: 'writeoffs' },
   { title: 'Заказы от клиентов', icon: 'bell', perm: 'client_orders.view', module: 'marketplace' },
   { title: 'Остатки товаров', icon: 'clipboard', to: '/stocks', perm: 'stock.view', module: 'stocks' },
@@ -26,6 +28,7 @@ const TILES: Tile[] = [
   { title: 'Расходы', icon: 'cart', to: '/spendings', perm: 'spending.view', module: 'spendings' },
   { title: 'Отчеты', icon: 'chart', to: '/reports', perm: 'reports.view' },
   { title: 'Клиенты', icon: 'people', to: '/clients', perm: 'client.view', module: 'clients' },
+  { title: 'Зарплата', icon: 'card', to: '/salary', perm: 'salary.view', module: 'salary' },
   { title: 'Ревизии', icon: 'edit', to: '/revisions', perm: 'revision.view', module: 'revisions' },
   { title: 'Настройки', icon: 'settings', to: '/settings', perm: 'settings.edit' },
 ];

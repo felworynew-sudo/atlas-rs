@@ -5,12 +5,15 @@ import NewSale from './pages/NewSale';
 import ProductEdit from './pages/ProductEdit';
 import Products from './pages/Products';
 import SaleDetail from './pages/SaleDetail';
+import Checklist from './pages/Checklist';
 import ClientDetail from './pages/ClientDetail';
 import Clients from './pages/Clients';
 import ProductStats from './pages/ProductStats';
 import Settings from './pages/Settings';
 import ProfitStats from './pages/ProfitStats';
 import Reports from './pages/Reports';
+import Salary from './pages/Salary';
+import ShiftPage from './pages/ShiftPage';
 import RevisionForm from './pages/RevisionForm';
 import RevisionStats from './pages/RevisionStats';
 import SalesStats from './pages/SalesStats';
@@ -50,6 +53,9 @@ export default function App() {
         <Route path="/supply-order/:id" element={<SupplyOrderForm />} />
         <Route path="/writeoffs" element={<Writeoffs />} />
         <Route path="/writeoff/new" element={<WriteoffForm />} />
+        <Route path="/shift" element={<ShiftPage />} />
+        <Route path="/salary" element={<Salary />} />
+        <Route path="/checklist" element={<Checklist />} />
         <Route path="/clients" element={<Clients />} />
         <Route path="/client/:id" element={<ClientDetail />} />
         <Route path="/settings" element={<Settings />} />

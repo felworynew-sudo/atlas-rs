@@ -271,3 +271,58 @@ export interface Sale {
 }
 export interface SavedCart { id: string; storeId: string; name: string; payload: { lines?: unknown[]; clientId?: string | null } }
 export interface HomeStats { today: { sales: number; checks: number; avgCheck: number }; weekAgo: { sales: number; checks: number; avgCheck: number } }
+
+export interface MethodTotals { paymentMethodId: string; name: string; kind: string; sales: number; returns: number }
+export interface ShiftTotals {
+  sales: number;
+  checks: number;
+  cashSales: number;
+  nonCashSales: number;
+  cashReturns: number;
+  cashSpendings: number;
+  paidSupplies: number;
+  deposits: number;
+  withdrawals: number;
+  expectedCash: number;
+  byMethod: MethodTotals[];
+  byUser: { userId: string; name: string; sales: number; checks: number }[];
+}
+export interface Shift {
+  id: string;
+  storeId: string;
+  openedAt: string;
+  closedAt: string | null;
+  openingCash: number;
+  expectedCash: number | null;
+  actualCash: number | null;
+  diff: number | null;
+  comment: string;
+  autoClosed: boolean;
+  closeDetails: { paymentMethodId: string; name: string; expected: number; actual: number; diff: number }[] | null;
+  staff: { userId: string; name: string }[];
+  cashbox: { id: string; amount: number; comment: string; createdAt: string }[];
+  totals: ShiftTotals;
+}
+export interface SalaryRow {
+  userId: string;
+  name: string;
+  roleName: string;
+  salaryType: string;
+  rate: number;
+  bonusType: string;
+  bonusRate: number;
+  hours: number;
+  shifts: number;
+  base: number;
+  bonus: number;
+  accrued: number;
+  paid: number;
+  toPay: number;
+}
+export interface SalaryDetail extends SalaryRow {
+  balancePeriod: number;
+  balanceAll: number;
+  workingHours: { id: string; storeId: string; startedAt: string; endedAt: string | null }[];
+  payments: { id: string; amount: number; walletId: string | null; comment: string; paidOn: string }[];
+}
+export interface ChecklistItem { id: string; title: string; time: string; sortOrder: number; kind: 'daily' | 'once' | 'section'; done: boolean; doneAt: string | null; doneBy: string | null }

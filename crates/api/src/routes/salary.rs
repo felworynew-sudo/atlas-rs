@@ -133,11 +133,18 @@ async fn paid_in(pool: &PgPool, org: Uuid, user: Uuid, from: NaiveDate, to: Naiv
 pub struct PeriodQuery {
     pub from: Option<DateTime<Utc>>,
     pub to: Option<DateTime<Utc>>,
+    /// Период датами (включительно); имеет приоритет над `from`/`to`.
+    pub from_date: Option<NaiveDate>,
+    pub to_date: Option<NaiveDate>,
     pub store_id: Option<Uuid>,
 }
 
 /// Период по умолчанию — текущий месяц (UTC).
 fn period(q: &PeriodQuery) -> (DateTime<Utc>, DateTime<Utc>) {
+    if let (Some(a), Some(b)) = (q.from_date, q.to_date) {
+        let at = |d: NaiveDate| d.and_hms_opt(0, 0, 0).expect("midnight").and_utc();
+        return (at(a), at(b.succ_opt().unwrap_or(b)));
+    }
     let today = Utc::now().date_naive();
     let first = NaiveDate::from_ymd_opt(today.year(), today.month(), 1).expect("first day");
     let next = if today.month() == 12 { NaiveDate::from_ymd_opt(today.year() + 1, 1, 1) } else { NaiveDate::from_ymd_opt(today.year(), today.month() + 1, 1) }
