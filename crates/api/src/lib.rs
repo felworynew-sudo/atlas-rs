@@ -33,6 +33,10 @@ pub fn app(state: AppState) -> Router {
         .nest("/api/saved-carts", routes::clients::saved_carts_router())
         .nest("/api/sales", routes::sales::router())
         .nest("/api/stocks", routes::stocks::router())
+        .nest("/api/supplies", routes::documents::supplies_router())
+        .nest("/api/writeoffs", routes::documents::writeoffs_router())
+        .nest("/api/revisions", routes::documents::revisions_router())
+        .nest("/api/supply-orders", routes::supply_orders::router())
         .route("/api/permissions", get(routes::roles::list_permissions))
         .with_state(state)
 }

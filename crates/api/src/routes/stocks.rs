@@ -16,7 +16,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list)).route("/{product_id}/movements", get(movements)).route("/{product_id}", put(set_qty))
+    Router::new().route("/", get(list)).route("/summary", get(summary)).route("/{product_id}/movements", get(movements)).route("/{product_id}", put(set_qty))
 }
 
 #[derive(Deserialize)]
@@ -92,6 +92,41 @@ pub struct StockRow {
     /// порог подсветки; 0 в карточке товара означает порог по умолчанию — 1
     pub threshold: f64,
     pub low: bool,
+    /// продано за 7 суток (продажи − удалённые + возвраты со знаком)
+    pub sold7: f64,
+    pub written_off7: f64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Summary {
+    pub units_in_stock: f64,
+    pub value_at_purchase: f64,
+    pub value_at_sale: f64,
+}
+
+/// «Остаток в наличии по закупочной / по продажной цене»: Σ остаток × себестоимость / цена филиала.
+async fn summary(State(s): State<AppState>, ctx: AuthContext, Query(q): Query<StoreQuery>) -> AppResult<Json<Summary>> {
+    ctx.require("stock.view")?;
+    let rows: Vec<(Uuid, f64, f64)> = sqlx::query_as(
+        "SELECT p.id, ss.qty::float8, COALESCE(ps.sale_price,0)::float8 FROM store_stock ss \
+         JOIN products p ON p.id = ss.product_id AND p.organization_id=$1 AND p.deleted_at IS NULL AND NOT p.is_service \
+         LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = ss.store_id \
+         WHERE ss.store_id=$2 AND ss.qty > 0",
+    )
+    .bind(ctx.org_id)
+    .bind(q.store_id)
+    .fetch_all(&s.pool)
+    .await?;
+    let costs = crate::routes::products::cost_nodes(&s.pool, ctx.org_id).await?;
+    let (mut units, mut at_purchase, mut at_sale) = (0.0, 0.0, 0.0);
+    for (pid, qty, price) in rows {
+        units += qty;
+        at_purchase += qty * atlas_domain::catalog::unit_cost(&costs, pid);
+        at_sale += qty * price;
+    }
+    let r2 = atlas_domain::sale::round2;
+    Ok(Json(Summary { units_in_stock: r2(units), value_at_purchase: r2(at_purchase), value_at_sale: r2(at_sale) }))
 }
 
 async fn list(State(s): State<AppState>, ctx: AuthContext, Query(q): Query<StoreQuery>) -> AppResult<Json<Vec<StockRow>>> {
@@ -99,7 +134,11 @@ async fn list(State(s): State<AppState>, ctx: AuthContext, Query(q): Query<Store
     let rows = sqlx::query_as::<_, StockRow>(
         "SELECT p.id AS product_id, p.name, p.category_id, COALESCE(ss.qty,0)::float8 AS qty, \
                 CASE WHEN p.stock_threshold > 0 THEN p.stock_threshold ELSE 1 END::float8 AS threshold, \
-                COALESCE(ss.qty,0) <= CASE WHEN p.stock_threshold > 0 THEN p.stock_threshold ELSE 1 END AS low \
+                COALESCE(ss.qty,0) <= CASE WHEN p.stock_threshold > 0 THEN p.stock_threshold ELSE 1 END AS low, \
+                COALESCE((SELECT -SUM(m.delta) FROM product_movements m WHERE m.product_id=p.id AND m.store_id=$2 \
+                          AND m.kind IN ('sale','sale_deleted','return') AND m.created_at > now() - interval '7 days'),0)::float8 AS sold7, \
+                COALESCE((SELECT -SUM(m.delta) FROM product_movements m WHERE m.product_id=p.id AND m.store_id=$2 \
+                          AND m.kind = 'writeoff' AND m.created_at > now() - interval '7 days'),0)::float8 AS written_off7 \
          FROM products p LEFT JOIN store_stock ss ON ss.product_id = p.id AND ss.store_id = $2 \
          WHERE p.organization_id=$1 AND p.deleted_at IS NULL AND NOT p.is_service \
            AND NOT EXISTS (SELECT 1 FROM product_stores ps WHERE ps.product_id=p.id AND ps.store_id=$2 AND NOT ps.active) \

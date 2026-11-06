@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod clients;
+pub mod documents;
 pub mod health;
 pub mod lists;
 pub mod organizations;
@@ -8,5 +9,6 @@ pub mod refs;
 pub mod roles;
 pub mod sales;
 pub mod stocks;
+pub mod supply_orders;
 pub mod stores;
 pub mod users;

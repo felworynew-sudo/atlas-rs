@@ -138,7 +138,7 @@ async fn one(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>) 
 }
 
 /// Доступ к филиалу: админ, право «Просмотр других филиалов» или филиал в списке сотрудника.
-async fn check_store(pool: &PgPool, ctx: &AuthContext, store_id: Uuid) -> AppResult<()> {
+pub async fn check_store(pool: &PgPool, ctx: &AuthContext, store_id: Uuid) -> AppResult<()> {
     let (exists,): (i64,) = sqlx::query_as("SELECT count(*) FROM stores WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL")
         .bind(store_id)
         .bind(ctx.org_id)
