@@ -100,7 +100,7 @@ pub struct ListQuery {
     pub user_id: Option<Uuid>,
 }
 
-async fn fetch_sales(pool: &PgPool, org: Uuid, id: Option<Uuid>, q: &ListQuery) -> AppResult<Vec<SaleView>> {
+pub async fn fetch_sales(pool: &PgPool, org: Uuid, id: Option<Uuid>, q: &ListQuery) -> AppResult<Vec<SaleView>> {
     let mut sales = sqlx::query_as::<_, SaleView>(SELECT_SALES)
         .bind(org)
         .bind(id)

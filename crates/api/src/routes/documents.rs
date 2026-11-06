@@ -105,7 +105,7 @@ pub struct SupplyQuery {
     pub supplier_id: Option<Uuid>,
 }
 
-async fn fetch_supplies(pool: &PgPool, org: Uuid, id: Option<Uuid>, q: &SupplyQuery) -> AppResult<Vec<SupplyView>> {
+pub async fn fetch_supplies(pool: &PgPool, org: Uuid, id: Option<Uuid>, q: &SupplyQuery) -> AppResult<Vec<SupplyView>> {
     let mut rows = sqlx::query_as::<_, SupplyView>(SELECT_SUPPLIES)
         .bind(org)
         .bind(id)
