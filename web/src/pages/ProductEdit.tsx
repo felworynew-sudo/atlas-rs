@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, type Category, type ListItem, type Product } from '../api';
 import { Icon } from '../Icon';
+import { ProductPicker } from '../ProductPicker';
 import { useSession } from '../session';
 import { Header, Spinner, useLoad, useToast } from '../ui';
 
@@ -9,6 +10,9 @@ interface Ref { id: string; name: string }
 interface Form {
   name: string;
   isService: boolean;
+  isComposite: boolean;
+  productionType: 'ahead' | 'on_sale';
+  ingredients: { productId: string; name: string; qty: string }[];
   hiddenInNewSale: boolean;
   purchasePrice: string;
   extraCost: string;
@@ -33,6 +37,7 @@ export default function ProductEdit() {
   const product = useLoad(() => (isNew ? Promise.resolve(null) : api<Product>(`/products/${id}`)), [id]);
   const [f, setF] = useState<Form | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [picker, setPicker] = useState(false);
 
   useEffect(() => {
     if (product.loading) return;
@@ -45,6 +50,9 @@ export default function ProductEdit() {
     setF({
       name: p?.name ?? '',
       isService: p?.isService ?? false,
+      isComposite: p?.isComposite ?? false,
+      productionType: p?.productionType ?? 'ahead',
+      ingredients: (p?.ingredients ?? []).map((i) => ({ productId: i.productId, name: i.name, qty: String(i.qty) })),
       hiddenInNewSale: p?.hiddenInNewSale ?? false,
       purchasePrice: p ? String(p.purchasePrice) : '',
       extraCost: p ? String(p.extraCost) : '',
@@ -70,6 +78,9 @@ export default function ProductEdit() {
       const body = {
         name: f.name,
         isService: f.isService,
+        isComposite: f.isComposite && !f.isService,
+        productionType: f.isComposite && !f.isService ? f.productionType : undefined,
+        ingredients: f.isComposite && !f.isService ? f.ingredients.map((i) => ({ productId: i.productId, qty: n(i.qty) })) : [],
         hiddenInNewSale: f.hiddenInNewSale,
         purchasePrice: n(f.purchasePrice),
         extraCost: n(f.extraCost),
@@ -112,9 +123,34 @@ export default function ProductEdit() {
         <div className="h2" style={{ marginTop: 0 }}>Общие</div>
         <label className="field"><span>Название</span><input type="text" value={f.name} placeholder="Молоко 1л" onChange={(e) => set('name', e.target.value)} /></label>
         <div className="chips">
-          <button type="button" className={`chip${!f.isService ? ' active' : ''}`} onClick={() => set('isService', false)}>Товар</button>
-          <button type="button" className={`chip${f.isService ? ' active' : ''}`} onClick={() => set('isService', true)}>Услуга</button>
+          <button type="button" className={`chip${!f.isService ? ' active' : ''}`} onClick={() => setF({ ...f, isService: false })}>Товар</button>
+          <button type="button" className={`chip${f.isService ? ' active' : ''}`} onClick={() => setF({ ...f, isService: true, isComposite: false })}>Услуга</button>
         </div>
+        {!f.isService && (
+          <>
+            <label className="row" style={{ marginBottom: 18 }}>
+              <input type="checkbox" checked={f.isComposite} onChange={(e) => set('isComposite', e.target.checked)} style={{ width: 22, height: 22 }} />
+              <span>Составной товар (из ингредиентов)</span>
+            </label>
+            {f.isComposite && (
+              <>
+                <div className="h2" style={{ marginTop: 0 }}>Состав</div>
+                {f.ingredients.map((ing, i) => (
+                  <div key={ing.productId} className="card row">
+                    <div className="grow title">{ing.name}</div>
+                    <input type="number" min="0" step="any" aria-label={`Количество ${ing.name}`} value={ing.qty} style={{ maxWidth: 100 }} onChange={(e) => set('ingredients', f.ingredients.map((x, k) => (k === i ? { ...x, qty: e.target.value } : x)))} />
+                    <button type="button" className="icon-btn small" aria-label="Убрать ингредиент" onClick={() => set('ingredients', f.ingredients.filter((_, k) => k !== i))}><Icon name="trash" size={18} /></button>
+                  </div>
+                ))}
+                <button type="button" className="btn light" style={{ marginBottom: 12 }} onClick={() => setPicker(true)}>+ Добавить ингредиент</button>
+                <div className="chips">
+                  <button type="button" className={`chip${f.productionType === 'ahead' ? ' active' : ''}`} onClick={() => set('productionType', 'ahead')}>Производится заранее</button>
+                  <button type="button" className={`chip${f.productionType === 'on_sale' ? ' active' : ''}`} onClick={() => set('productionType', 'on_sale')}>Списывается при продаже</button>
+                </div>
+              </>
+            )}
+          </>
+        )}
         <label className="row" style={{ marginBottom: 18 }}>
           <input type="checkbox" checked={f.hiddenInNewSale} onChange={(e) => set('hiddenInNewSale', e.target.checked)} style={{ width: 22, height: 22 }} />
           <span>Скрывать на экране Новой продажи (для ингредиентов)</span>
@@ -169,6 +205,12 @@ export default function ProductEdit() {
         {error && <div className="error" role="alert">{error}</div>}
         <button className="btn" disabled={!f.name.trim()}>Сохранить</button>
       </form>
+      {picker && s.storeId && (
+        <ProductPicker storeId={s.storeId} skipServices onClose={() => setPicker(false)} onPick={(pp) => {
+          if (pp.id !== id && !f.ingredients.some((i) => i.productId === pp.id)) set('ingredients', [...f.ingredients, { productId: pp.id, name: pp.name, qty: '1' }]);
+          setPicker(false);
+        }} />
+      )}
       {toast}
     </>
   );

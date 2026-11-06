@@ -1,4 +1,5 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { api } from '../api';
 import { useSession } from '../session';
 
 export default function Login() {
@@ -7,6 +8,10 @@ export default function Login() {
   const [f, setF] = useState({ email: '', password: '', name: '', organizationName: '', storeName: '' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [signupOn, setSignupOn] = useState(false);
+  useEffect(() => {
+    api<{ signupEnabled: boolean }>('/auth/config').then((c) => setSignupOn(c.signupEnabled)).catch(() => undefined);
+  }, []);
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
 
   async function submit(e: FormEvent) {
@@ -37,11 +42,11 @@ export default function Login() {
       <label className="field"><span>Пароль</span><input type="password" value={f.password} onChange={set('password')} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>
       {error && <div className="error" role="alert">{error}</div>}
       <button className="btn" disabled={busy}>{mode === 'login' ? 'Войти' : 'Создать'}</button>
-      <p style={{ textAlign: 'center', marginTop: 20 }}>
+      {(signupOn || mode === 'signup') && <p style={{ textAlign: 'center', marginTop: 20 }}>
         <button type="button" className="link" onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(null); }}>
           {mode === 'login' ? 'Зарегистрировать компанию' : 'У меня уже есть аккаунт'}
         </button>
-      </p>
+      </p>}
     </form>
   );
 }

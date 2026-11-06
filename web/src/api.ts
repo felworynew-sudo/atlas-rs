@@ -98,6 +98,8 @@ export interface Product {
   name: string;
   isService: boolean;
   isComposite: boolean;
+  productionType: 'ahead' | 'on_sale';
+  ingredients: { productId: string; name: string; qty: number }[];
   hiddenInNewSale: boolean;
   purchasePrice: number;
   extraCost: number;

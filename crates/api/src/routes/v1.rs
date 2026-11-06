@@ -184,8 +184,9 @@ async fn acceptances(State(s): State<AppState>, a: ApiAuth, Query(q): Query<Date
 }
 
 /// Период отчётов API: даты включительно, по умолчанию — последние 30 суток.
+/// Дни считаются в часовом поясе филиала, а он может опережать UTC, поэтому по умолчанию конец — завтрашняя дата UTC.
 fn range(q: &DateQ) -> (NaiveDate, NaiveDate) {
-    let to = q.to.unwrap_or_else(|| Utc::now().date_naive());
+    let to = q.to.unwrap_or_else(|| Utc::now().date_naive() + Duration::days(1));
     let from = q.from.unwrap_or(to - Duration::days(29));
     (from, to)
 }

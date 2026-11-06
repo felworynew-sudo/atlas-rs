@@ -34,6 +34,7 @@
 ```bash
 export DATABASE_URL=postgres://postgres:secret@127.0.0.1:54329/atlas
 export JWT_SECRET=change-me
+export ALLOW_SIGNUP=false     # закрытая установка: регистрация новых компаний выключена (по умолчанию включена)
 cargo run -p atlas-api        # слушает BIND (по умолчанию 0.0.0.0:8080; на Windows порт 8080 может быть закрыт — BIND=127.0.0.1:8787), миграции применяются при старте
 ```
 

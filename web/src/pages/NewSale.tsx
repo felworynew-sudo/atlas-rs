@@ -33,6 +33,9 @@ export default function NewSale() {
   const [discount, setDiscount] = useState<Discount>({ type: 'none' });
   const [purchaseId, setPurchaseId] = useState<string | null>(null);
   const [paymentId, setPaymentId] = useState<string | null>(null);
+  const [mixed, setMixed] = useState(false);
+  const [secondId, setSecondId] = useState<string | null>(null);
+  const [firstValue, setFirstValue] = useState('');
   const [received, setReceived] = useState('');
   const [modal, setModal] = useState<null | 'discount' | 'custom' | 'carts'>(null);
   const [custom, setCustom] = useState({ name: '', price: '' });
@@ -45,9 +48,13 @@ export default function NewSale() {
   const purchase = (purchases.data ?? []).find((p) => p.id === (purchaseId ?? purchases.data?.[0]?.id));
   const payment = (payments.data ?? []).find((p) => p.id === (paymentId ?? payments.data?.[0]?.id));
   const markup = Number(purchase?.params.markupPercent ?? 0);
-  const isCash = payment?.params.kind === 'cash';
+  const second = mixed ? (payments.data ?? []).find((p) => p.id === (secondId ?? (payments.data ?? []).find((x) => x.id !== payment?.id)?.id)) : undefined;
+  const isCash = payment?.params.kind === 'cash' && !second;
   const totals = saleTotals(lines, markup, discount);
   const back = change(Number(received.replace(',', '.')) || 0, totals.total);
+  const first = Math.min(Math.max(Number(firstValue.replace(',', '.')) || 0, 0), totals.total);
+  const secondValue = Math.round((totals.total - first) * 100) / 100;
+  const mixedInvalid = !!second && (first <= 0 || secondValue <= 0);
 
   // поиск клиента по имени или телефону
   useEffect(() => {
@@ -102,6 +109,9 @@ export default function NewSale() {
           storeId,
           clientId: client?.id,
           paymentMethodId: payment?.id,
+          secondPaymentMethodId: second?.id,
+          firstPaymentValue: second ? first : undefined,
+          secondPaymentValue: second ? secondValue : undefined,
           purchaseMethodId: purchase?.id,
           delivery: purchase?.params.delivery === true,
           discountPercentage: discount.type === 'percent' ? discount.value : undefined,
@@ -216,6 +226,25 @@ export default function NewSale() {
           <button key={p.id} className={`chip small${p.id === payment?.id ? ' active' : ''}`} onClick={() => setPaymentId(p.id)}>{p.name}</button>
         ))}
       </div>
+      {(payments.data ?? []).length > 1 && (
+        <label className="row" style={{ gap: 8, marginBottom: 8 }}>
+          <input type="checkbox" checked={mixed} onChange={(e) => setMixed(e.target.checked)} style={{ width: 20, height: 20 }} />
+          <span>Смешанная оплата</span>
+        </label>
+      )}
+      {second && (
+        <>
+          <div className="chips">
+            {(payments.data ?? []).filter((p) => p.id !== payment?.id).map((p) => (
+              <button key={p.id} className={`chip small${p.id === second.id ? ' active' : ''}`} onClick={() => setSecondId(p.id)}>{p.name}</button>
+            ))}
+          </div>
+          <label className="field"><span>Сумма {payment?.name}</span>
+            <input type="number" min="0" step="any" value={firstValue} placeholder="0" onChange={(e) => setFirstValue(e.target.value)} />
+          </label>
+          <div className="total-row"><span>{second.name}</span><span>{rub(secondValue)}</span></div>
+        </>
+      )}
 
       {lines.length === 0 && <div className="muted" style={{ margin: '16px 0' }}>Добавьте товар, чтобы оформить продажу</div>}
       {lines.map((l) => (
@@ -245,7 +274,7 @@ export default function NewSale() {
 
       {error && <div className="error" role="alert">{error}</div>}
       <button className="btn light" style={{ marginBottom: 10 }} disabled={lines.length === 0} onClick={postpone}>Отложить</button>
-      <button className="btn" disabled={lines.length === 0 || busy} onClick={checkout}>Готово</button>
+      <button className="btn" disabled={lines.length === 0 || busy || mixedInvalid} onClick={checkout}>Готово</button>
     </section>
   );
 

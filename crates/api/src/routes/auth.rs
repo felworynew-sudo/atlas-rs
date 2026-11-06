@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/config", get(config))
         .route("/signup", post(signup))
         .route("/login", post(login))
         .route("/me", get(me))
@@ -78,7 +79,19 @@ pub async fn load_user_view(state: &AppState, user_id: Uuid) -> AppResult<UserVi
     Ok(UserView { id, organization_id, email, name, role_id, role_key, role_name, permissions, store_ids })
 }
 
+/// Регистрация новых компаний включена по умолчанию; для закрытой установки задайте `ALLOW_SIGNUP=false`.
+fn signup_enabled() -> bool {
+    !matches!(std::env::var("ALLOW_SIGNUP").ok().as_deref().map(str::trim), Some("false" | "0" | "no" | "off"))
+}
+
+async fn config() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "signupEnabled": signup_enabled() }))
+}
+
 async fn signup(State(state): State<AppState>, Json(dto): Json<SignupDto>) -> AppResult<Json<LoginResponse>> {
+    if !signup_enabled() {
+        return Err(AppError::Forbidden);
+    }
     let email = check_email(&dto.email)?;
     validate_password(&dto.password)?;
     if dto.name.trim().is_empty() || dto.organization_name.trim().is_empty() {
