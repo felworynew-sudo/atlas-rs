@@ -58,6 +58,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    // Вход с корпоративного сайта: сайт передаёт токен в адресе вида /#sso=<токен>; сразу убираем его из адреса.
+    const m = /[#&]sso=([^&]+)/.exec(window.location.hash);
+    if (m) {
+      setToken(decodeURIComponent(m[1]));
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
     if (!getToken()) {
       setReady(true);
       return;

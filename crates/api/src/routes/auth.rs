@@ -16,6 +16,7 @@ use uuid::Uuid;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/config", get(config))
+        .route("/sso", post(sso))
         .route("/signup", post(signup))
         .route("/login", post(login))
         .route("/me", get(me))
@@ -178,4 +179,35 @@ async fn login(State(state): State<AppState>, Json(dto): Json<LoginDto>) -> AppR
 
 async fn me(State(state): State<AppState>, ctx: AuthContext) -> AppResult<Json<UserView>> {
     Ok(Json(load_user_view(&state, ctx.user_id).await?))
+}
+
+#[derive(Deserialize)]
+pub struct SsoDto {
+    pub email: String,
+}
+
+fn same_secret(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
+/// Вход с корпоративного сайта: серверная часть сайта, уже проверившая свою сессию сотрудника, вызывает этот метод
+/// с общим секретом (`SSO_SECRET`, заголовок `X-Sso-Secret`) и email сотрудника и получает токен Атласа на 12 часов.
+/// Пользователь должен уже существовать в Атласе и быть активным; без `SSO_SECRET` метод выключен.
+async fn sso(State(state): State<AppState>, headers: axum::http::HeaderMap, Json(dto): Json<SsoDto>) -> AppResult<Json<LoginResponse>> {
+    let expected = std::env::var("SSO_SECRET").ok().filter(|v| v.len() >= 16).ok_or(AppError::NotFound("Вход с сайта не настроен".into()))?;
+    let given = headers.get("x-sso-secret").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if !same_secret(given, &expected) {
+        return Err(AppError::Unauthorized("Неверный секрет входа с сайта".into()));
+    }
+    let email = dto.email.trim().to_lowercase();
+    let row: Option<(Uuid, bool)> = sqlx::query_as("SELECT id, active FROM users WHERE lower(email) = $1")
+        .bind(&email)
+        .fetch_optional(&state.pool)
+        .await?;
+    let (id, active) = row.ok_or(AppError::NotFound("Сотрудник не заведён в Атласе".into()))?;
+    if !active {
+        return Err(AppError::Forbidden);
+    }
+    let token = crate::auth::issue_token_for(&state.jwt_secret, id, chrono::Duration::hours(12))?;
+    Ok(Json(LoginResponse { token, user: load_user_view(&state, id).await? }))
 }

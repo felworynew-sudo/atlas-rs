@@ -40,7 +40,12 @@ struct Claims {
 }
 
 pub fn issue_token(secret: &str, user_id: Uuid) -> Result<String, AppError> {
-    let exp = (chrono::Utc::now() + chrono::Duration::days(30)).timestamp() as usize;
+    issue_token_for(secret, user_id, chrono::Duration::days(30))
+}
+
+/// Токен с заданным сроком жизни (для входа с внешнего сайта срок короче).
+pub fn issue_token_for(secret: &str, user_id: Uuid, ttl: chrono::Duration) -> Result<String, AppError> {
+    let exp = (chrono::Utc::now() + ttl).timestamp() as usize;
     encode(&Header::default(), &Claims { sub: user_id, exp }, &EncodingKey::from_secret(secret.as_bytes()))
         .map_err(|e| AppError::Internal(e.to_string()))
 }
