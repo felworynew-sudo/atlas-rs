@@ -30,6 +30,10 @@ export default function Products() {
         <div className="chips">
           {s.stores.map((st) => <button key={st.id} className={`chip${store === st.id ? ' active' : ''}`} onClick={() => setStore(st.id)}>{st.name}</button>)}
         </div>
+        <div className="row" style={{ marginBottom: 12, gap: 16 }}>
+          <button className="link" onClick={() => nav('/products/batch')}>Массовое редактирование</button>
+          {s.can('settings.export_import') && <button className="link" onClick={() => nav('/settings/export-import')}>Экспорт / Импорт</button>}
+        </div>
         <input type="search" placeholder="Поиск" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 14 }} />
         <div className="chips">
           <button className={`chip small${cat === 'all' ? ' active' : ''}`} onClick={() => setCat('all')}>Все</button>

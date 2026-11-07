@@ -16,6 +16,7 @@ interface Result {
   created?: number;
   updated?: number;
   sales?: number;
+  manufactures?: number;
   items?: number;
   total?: number;
   batchId?: string | null;
@@ -95,7 +96,7 @@ export default function ExportImport() {
             {kind === 'sales' ? (
               <div className="sub">Продаж: {res.sales ?? 0} · позиций: {res.items ?? 0} · на сумму {rub(res.total ?? 0)}</div>
             ) : (
-              <div className="sub">Создано: {res.created ?? 0} · обновлено: {res.updated ?? 0}</div>
+              <div className="sub">{kind === 'manufactures' ? `Производств: ${res.manufactures ?? 0}` : `Создано: ${res.created ?? 0} · обновлено: ${res.updated ?? 0}`}</div>
             )}
             {res.errors.length > 0 && (
               <div className="error" role="alert" style={{ marginTop: 8 }}>

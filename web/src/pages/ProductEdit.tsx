@@ -21,6 +21,7 @@ interface Form {
   unitId: string;
   barcodes: string;
   allowFractional: boolean;
+  important: boolean;
   stockThreshold: string;
   prices: Record<string, { active: boolean; price: string; stock: string }>;
 }
@@ -61,6 +62,7 @@ export default function ProductEdit() {
       unitId: p?.unitId ?? '',
       barcodes: p?.barcodes.join(', ') ?? '',
       allowFractional: p?.allowFractional ?? false,
+      important: p?.important ?? false,
       stockThreshold: p ? String(p.stockThreshold) : '',
       prices,
     });
@@ -89,6 +91,7 @@ export default function ProductEdit() {
         unitId: f.unitId || null,
         barcodes: f.barcodes.split(',').map((b) => b.trim()).filter(Boolean),
         allowFractional: f.allowFractional,
+        important: f.important,
         stockThreshold: n(f.stockThreshold),
         stores: Object.entries(f.prices).map(([storeId, p]) => ({ storeId, active: p.active, salePrice: n(p.price) })),
       };
@@ -106,6 +109,16 @@ export default function ProductEdit() {
     }
   }
 
+  async function copy() {
+    try {
+      const c = await api<Product>(`/products/${id}/copy`, { method: 'POST' });
+      say('Копия создана');
+      nav(`/product/${c.id}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Ошибка');
+    }
+  }
+
   async function remove() {
     if (!confirm('Удалить товар?')) return;
     try {
@@ -118,7 +131,7 @@ export default function ProductEdit() {
 
   return (
     <>
-      <Header title={isNew ? 'Новый' : f.name || 'Товар'} right={!isNew && s.can('product.delete') ? <button className="icon-btn" aria-label="Удалить товар" onClick={remove}><Icon name="trash" /></button> : undefined} />
+      <Header title={isNew ? 'Новый' : f.name || 'Товар'} right={!isNew ? <>{s.can('product.view') && <button className="link" onClick={copy}>Создать копию</button>}{s.can('product.delete') && <button className="icon-btn" aria-label="Удалить товар" onClick={remove}><Icon name="trash" /></button>}</> : undefined} />
       <form className="page" onSubmit={save}>
         <div className="h2" style={{ marginTop: 0 }}>Общие</div>
         <label className="field"><span>Название</span><input type="text" value={f.name} placeholder="Молоко 1л" onChange={(e) => set('name', e.target.value)} /></label>
@@ -155,7 +168,11 @@ export default function ProductEdit() {
           <input type="checkbox" checked={f.hiddenInNewSale} onChange={(e) => set('hiddenInNewSale', e.target.checked)} style={{ width: 22, height: 22 }} />
           <span>Скрывать на экране Новой продажи (для ингредиентов)</span>
         </label>
+        {f.isComposite ? (
+          product.data && <div className="card"><div className="title">Себестоимость 1 шт — {product.data.costPrice} ₽</div><div className="sub">считается из состава</div></div>
+        ) : (
         <label className="field"><span>Закупочная цена</span><input type="number" min="0" step="any" value={f.purchasePrice} placeholder="300" onChange={(e) => set('purchasePrice', e.target.value)} /></label>
+        )}
         <label className="field"><span>Доп расходы к закупочной цене</span><input type="number" min="0" step="any" value={f.extraCost} onChange={(e) => set('extraCost', e.target.value)} /></label>
         {s.stores.map((st) => (
           <div key={st.id} className="field">
@@ -198,6 +215,10 @@ export default function ProductEdit() {
             <label className="row" style={{ marginBottom: 18 }}>
               <input type="checkbox" checked={f.allowFractional} onChange={(e) => set('allowFractional', e.target.checked)} style={{ width: 22, height: 22 }} />
               <span>Показывать остатки нецелыми числами</span>
+            </label>
+            <label className="row" style={{ marginBottom: 18 }}>
+              <input type="checkbox" checked={f.important} onChange={(e) => set('important', e.target.checked)} style={{ width: 22, height: 22 }} />
+              <span>Показывать в важных товарах</span>
             </label>
             <label className="field"><span>Количество при котором нужно подсветить красным</span><input type="number" min="0" step="any" value={f.stockThreshold} placeholder="1" onChange={(e) => set('stockThreshold', e.target.value)} /></label>
           </>

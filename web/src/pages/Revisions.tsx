@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type Revision } from '../api';
-import { endOfDay, fmtDateTime, startOfDay, todayLocal } from '../dates';
+import { endOfDay, fmtDate, fmtDateTime, startOfDay, todayLocal } from '../dates';
 import { Icon } from '../Icon';
 import { rub } from '../money';
 import { useSession } from '../session';
@@ -21,16 +21,22 @@ export default function Revisions() {
       <main className="page">
         <DateRange from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b); }} />
         <StoreChips all stores={s.stores} value={store} onChange={setStore} />
-        <button className="link" onClick={list.reload}>Обновить</button>
+        <div className="row" style={{ gap: 16 }}>
+          <button className="link" onClick={list.reload}>Обновить</button>
+          <button className="link" onClick={() => nav('/reports/revisions')}>Отчет по ревизиям</button>
+        </div>
         {list.loading && <Spinner />}
         {!list.loading && (list.data ?? []).length === 0 && <div className="empty">Ничего не найдено</div>}
-        {(list.data ?? []).map((r) => (
-          <div key={r.id} className="card click" onClick={() => nav(`/revision/${r.id}`)}>
+        {(list.data ?? []).map((r, i, arr) => (
+          <div key={r.id}>
+            {(i === 0 || fmtDate(arr[i - 1].revisionDate) !== fmtDate(r.revisionDate)) && <div className="day">{fmtDate(r.revisionDate)}</div>}
+          <div className="card click" onClick={() => nav(`/revision/${r.id}`)}>
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <span className="title">{fmtDateTime(r.revisionDate)} · {s.stores.find((x) => x.id === r.storeId)?.name}</span>
               <span className={r.totalDiff < 0 ? 'price low' : 'price'}>{r.totalDiff > 0 ? '+' : ''}{rub(r.totalDiff)}</span>
             </div>
-            <div className="sub">{r.items.length} поз. · {r.items.filter((i) => i.factQty !== i.systemQty).length} с расхождением</div>
+            <div className="sub">{r.items.length} поз. · {r.items.filter((i) => i.factQty !== i.systemQty).length} с расхождением{r.comment ? ` · ${r.comment}` : ''}</div>
+          </div>
           </div>
         ))}
       </main>

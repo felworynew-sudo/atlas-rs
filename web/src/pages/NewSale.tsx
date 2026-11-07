@@ -40,6 +40,11 @@ export default function NewSale() {
   const [secondId, setSecondId] = useState<string | null>(null);
   const [firstValue, setFirstValue] = useState('');
   const [received, setReceived] = useState('');
+  const [bonusInput, setBonusInput] = useState('');
+  const [cashbackOn, setCashbackOn] = useState(true);
+  const [deliveryOn, setDeliveryOn] = useState(false);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryPhone, setDeliveryPhone] = useState('');
   const [modal, setModal] = useState<null | 'discount' | 'custom' | 'carts' | 'mods'>(null);
   const [custom, setCustom] = useState({ name: '', price: '' });
   const [busy, setBusy] = useState(false);
@@ -68,10 +73,21 @@ export default function NewSale() {
   const markup = Number(purchase?.params.markupPercent ?? 0);
   const second = mixed ? (payments.data ?? []).find((p) => p.id === (secondId ?? (payments.data ?? []).find((x) => x.id !== payment?.id)?.id)) : undefined;
   const isCash = payment?.params.kind === 'cash' && !second;
-  const totals = saleTotals(lines, markup, discount);
-  const back = change(Number(received.replace(',', '.')) || 0, totals.total);
-  const first = Math.min(Math.max(Number(firstValue.replace(',', '.')) || 0, 0), totals.total);
-  const secondValue = Math.round((totals.total - first) * 100) / 100;
+  // постоянная скидка клиента действует, пока скидка в чеке не задана вручную (как на сервере)
+  const clientDiscount = ((): Discount => {
+    const d = client?.discountId ? (discounts.data ?? []).find((x) => x.id === client.discountId) : undefined;
+    const p = d?.params as { type?: string; value?: number } | undefined;
+    if (!p || !(Number(p.value) > 0)) return { type: 'none' };
+    return p.type === 'amount' ? { type: 'amount', value: Number(p.value) } : { type: 'percent', value: Number(p.value) };
+  })();
+  const effDiscount: Discount = discount.type === 'none' ? clientDiscount : discount;
+  const totals = saleTotals(lines, markup, effDiscount);
+  const bonusMax = client ? Math.max(0, Math.min(client.bonusBalance, totals.total)) : 0;
+  const bonus = Math.min(Math.max(Number(bonusInput.replace(',', '.')) || 0, 0), bonusMax);
+  const payable = Math.round((totals.total - bonus) * 100) / 100;
+  const back = change(Number(received.replace(',', '.')) || 0, payable);
+  const first = Math.min(Math.max(Number(firstValue.replace(',', '.')) || 0, 0), payable);
+  const secondValue = Math.round((payable - first) * 100) / 100;
   const mixedInvalid = !!second && (first <= 0 || secondValue <= 0);
 
   // поиск клиента по имени или телефону
@@ -110,6 +126,11 @@ export default function NewSale() {
 
   function reset() {
     setLines([]);
+    setBonusInput('');
+    setCashbackOn(true);
+    setDeliveryOn(false);
+    setDeliveryAddress('');
+    setDeliveryPhone('');
     setClient(null);
     setClientQuery('');
     setDiscount({ type: 'none' });
@@ -132,7 +153,11 @@ export default function NewSale() {
           firstPaymentValue: second ? first : undefined,
           secondPaymentValue: second ? secondValue : undefined,
           purchaseMethodId: purchase?.id,
-          delivery: purchase?.params.delivery === true,
+          delivery: deliveryOn || purchase?.params.delivery === true,
+          deliveryAddress: deliveryOn ? deliveryAddress || undefined : undefined,
+          deliveryPhone: deliveryOn ? deliveryPhone || undefined : undefined,
+          bonusReduction: bonus > 0 ? bonus : undefined,
+          cashbackEnabled: client ? cashbackOn : undefined,
           discountPercentage: discount.type === 'percent' ? discount.value : undefined,
           discountAmount: discount.type === 'amount' ? discount.value : undefined,
           idempotencyKey: idem.current,
@@ -151,7 +176,7 @@ export default function NewSale() {
 
   async function postpone() {
     try {
-      await api('/saved-carts', { body: { storeId, name: client?.name ?? '', payload: { lines, clientId: client?.id ?? null } } });
+      await api('/saved-carts', { body: { storeId, name: client?.name ?? '', payload: { lines: rawLines, clientId: client?.id ?? null, discount, paymentId, purchaseId, deliveryOn, deliveryAddress, deliveryPhone } } });
       reset();
       carts.reload();
       say('Чек отложен');
@@ -161,7 +186,15 @@ export default function NewSale() {
   }
 
   async function restore(c: SavedCart) {
-    setLines((c.payload.lines ?? []) as CartLine[]);
+    const pl = c.payload as { lines?: CartLine[]; clientId?: string | null; discount?: Discount; paymentId?: string | null; purchaseId?: string | null; deliveryOn?: boolean; deliveryAddress?: string; deliveryPhone?: string };
+    setLines((pl.lines ?? []) as CartLine[]);
+    if (pl.discount) setDiscount(pl.discount);
+    if (pl.paymentId) setPaymentId(pl.paymentId);
+    if (pl.purchaseId) setPurchaseId(pl.purchaseId);
+    setDeliveryOn(pl.deliveryOn === true);
+    setDeliveryAddress(pl.deliveryAddress ?? '');
+    setDeliveryPhone(pl.deliveryPhone ?? '');
+    if (pl.clientId) setClient(await api<Client>(`/clients/${pl.clientId}`).catch(() => null));
     await api(`/saved-carts/${c.id}`, { method: 'DELETE' });
     carts.reload();
     setModal(null);
@@ -288,7 +321,31 @@ export default function NewSale() {
 
       {totals.discount > 0 && <div className="row muted" style={{ justifyContent: 'space-between' }}><span>Скидка</span><span>−{rub(totals.discount)}</span></div>}
       {totals.markup > 0 && <div className="row muted" style={{ justifyContent: 'space-between' }}><span>Надбавка</span><span>+{rub(totals.markup)}</span></div>}
-      <div className="total-row"><span>Итого</span><span>{rub(totals.total)}</span></div>
+      {bonus > 0 && <div className="row muted" style={{ justifyContent: 'space-between' }}><span>Оплата бонусами</span><span>−{rub(bonus)}</span></div>}
+      <div className="total-row"><span>Итого</span><span>{rub(payable)}</span></div>
+      {client && (
+        <div style={{ marginBottom: 12 }}>
+          {bonusMax > 0 && (
+            <label className="field"><span>Списать бонусы (доступно {rub(client.bonusBalance)})</span>
+              <input type="number" min="0" max={bonusMax} step="any" value={bonusInput} placeholder="0" onChange={(e) => setBonusInput(e.target.value)} />
+            </label>
+          )}
+          <label className="row" style={{ gap: 8 }}>
+            <input type="checkbox" checked={cashbackOn} style={{ width: 20, height: 20 }} onChange={(e) => setCashbackOn(e.target.checked)} />
+            <span>Начислять кэшбэк</span>
+          </label>
+        </div>
+      )}
+      <label className="row" style={{ gap: 8, marginBottom: 8 }}>
+        <input type="checkbox" checked={deliveryOn} style={{ width: 20, height: 20 }} onChange={(e) => { setDeliveryOn(e.target.checked); if (e.target.checked) { if (!deliveryAddress && client?.address) setDeliveryAddress(client.address); if (!deliveryPhone && client?.phone) setDeliveryPhone(client.phone); } }} />
+        <span>Доставка</span>
+      </label>
+      {deliveryOn && (
+        <>
+          <label className="field"><span>Адрес доставки</span><input type="text" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} /></label>
+          <label className="field"><span>Телефон для доставки</span><input type="text" value={deliveryPhone} onChange={(e) => setDeliveryPhone(e.target.value)} /></label>
+        </>
+      )}
 
       {isCash && lines.length > 0 && (
         <>

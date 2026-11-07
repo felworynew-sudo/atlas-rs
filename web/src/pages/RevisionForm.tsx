@@ -23,6 +23,7 @@ export default function RevisionForm() {
   const [cat, setCat] = useState('');
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  const [comment, setComment] = useState('');
   const [error, setError] = useState<string | null>(null);
   const onlyProduct = params.get('product');
 
@@ -56,6 +57,7 @@ export default function RevisionForm() {
         body: {
           storeId: store,
           categoryId: cat || undefined,
+          comment: comment || undefined,
           items: rows.map((r) => ({ productId: r.productId, factQty: Number(r.fact.replace(',', '.')) })),
         },
       });
@@ -122,6 +124,7 @@ export default function RevisionForm() {
           </div>
         ))}
         {rows.length > 0 && <div className="total-row"><span>Итого</span><span className={total < 0 ? 'low' : ''}>{rub(total)}</span></div>}
+        {rows.length > 0 && <label className="field" style={{ marginTop: 12 }}><span>Комментарий</span><input type="text" value={comment} onChange={(e) => setComment(e.target.value)} /></label>}
         {error && <div className="error" role="alert">{error}</div>}
         <button className="btn" disabled={rows.length === 0 || rows.some((r) => r.fact.trim() === '')} onClick={save}>Сохранить</button>
       </main>

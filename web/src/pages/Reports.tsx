@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { api, type ProfitReport, type SalesReport, type StockSummary } from '../api';
+import { api, type ProductsReport, type ProfitReport, type SalesReport, type StockSummary } from '../api';
 import { rub, num } from '../money';
 import { useReportFilters, Line } from '../reportKit';
 import { todayLocal } from '../dates';
@@ -20,6 +20,7 @@ export default function Reports() {
   const f = useReportFilters(todayLocal(), todayLocal());
   const profit = useLoad(() => api<ProfitReport>('/reports/profit', { query: f.query }), [f.store, f.from, f.to]);
   const byPurchase = useLoad(() => api<SalesReport>('/reports/sales', { query: { ...f.query, groupBy: 'purchase' } }), [f.store, f.from, f.to]);
+  const byProduct = useLoad(() => api<ProductsReport>('/reports/products', { query: f.query }), [f.store, f.from, f.to]);
   const stockStore = f.store === 'all' ? s.storeId : f.store;
   const stock = useLoad(() => (s.can('stock.view') && stockStore ? api<StockSummary>('/stocks/summary', { query: { storeId: stockStore } }) : Promise.resolve(null)), [stockStore]);
   const p = profit.data;
@@ -53,6 +54,19 @@ export default function Reports() {
             <Line label="Ежемесячные расходы" value={rub(p.monthlyExpenses.total)} />
             <Line bold label="~ Прибыль за день" value={rub(p.operatingProfit)} tone={p.operatingProfit < 0 ? 'bad' : 'good'} />
           </div>
+        )}
+        {(byProduct.data?.byProduct ?? []).filter((x) => x.soldQty > 0).length > 0 && (
+          <>
+            <div className="h2">Товары за период</div>
+            <table className="table">
+              <thead><tr><th>Товар</th><th className="num">Чеки</th><th className="num">Кол-во</th><th className="num">Сумма</th><th className="num">Маржа</th></tr></thead>
+              <tbody>
+                {(byProduct.data?.byProduct ?? []).filter((x) => x.soldQty > 0).sort((a, b) => b.soldSum - a.soldSum).map((x) => (
+                  <tr key={x.id ?? x.name}><td>{x.name}</td><td className="num">{num(x.checks)}</td><td className="num">{num(x.soldQty)}</td><td className="num">{rub(x.soldSum)}</td><td className="num">{rub(x.profit)}</td></tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </main>
     </>

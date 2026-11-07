@@ -40,12 +40,22 @@ export default function Clients() {
   const [productName, setProductName] = useState('');
   const [picker, setPicker] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
 
   const stats = useLoad(() => api<{ total: number; new: number; active: number }>('/clients/stats', { query: { days: periodDays(period) } }), [period]);
   const list = useLoad(
     () => api<Client[]>('/clients', { query: { search: mode === 'search' ? search : undefined, productId: mode === 'product' ? productId : undefined, sort: mode === 'registered' ? 'registered' : mode === 'last' ? 'last_purchase' : undefined } }),
     [mode, search, productId],
   );
+
+  const dayOf = (iso: string | null): string => (iso ? iso.slice(0, 10) : '');
+  const shown = (list.data ?? []).filter((c) => {
+    if (mode !== 'registered' && mode !== 'last') return true;
+    if (!from && !to) return true;
+    const d = mode === 'registered' ? dayOf(c.createdAt) : dayOf(c.lastPurchaseAt);
+    return !!d && (!from || d >= from) && (!to || d <= to);
+  });
 
   return (
     <>
@@ -69,6 +79,13 @@ export default function Clients() {
           {MODES.map((m) => <button key={m.id} className={`chip small${mode === m.id ? ' active' : ''}`} onClick={() => setMode(m.id)}>{m.label}</button>)}
         </div>
         {mode === 'search' && <input type="search" placeholder="Имя или телефон" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 14 }} />}
+        {(mode === 'registered' || mode === 'last') && (
+          <div className="row" style={{ marginBottom: 14, gap: 8 }}>
+            <input type="date" aria-label="С" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+            <input type="date" aria-label="По" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
+            {(from || to) && <button className="link" onClick={() => { setFrom(''); setTo(''); }}>Сбросить</button>}
+          </div>
+        )}
         {mode === 'product' && (
           <div className="card click row" onClick={() => setPicker(true)}>
             <div className="grow title">{productName || 'Выбрать товар'}</div><span className="link">{productId ? 'Изменить' : ''}</span>
@@ -77,8 +94,8 @@ export default function Clients() {
         <button className="link" onClick={list.reload}>Обновить</button>
         {list.loading && <Spinner />}
         {list.error && <div className="error">{list.error}</div>}
-        {!list.loading && (list.data ?? []).length === 0 && <div className="empty">Ничего не найдено</div>}
-        {(list.data ?? []).map((c) => (
+        {!list.loading && shown.length === 0 && <div className="empty">Ничего не найдено</div>}
+        {shown.map((c) => (
           <div key={c.id} className="card click row" onClick={() => s.can('client.card') && nav(`/client/${c.id}`)}>
             <div className="grow"><div className="title">{c.name}</div><div className="sub">{c.phone || 'без телефона'}</div></div>
             <div style={{ textAlign: 'right' }}>
