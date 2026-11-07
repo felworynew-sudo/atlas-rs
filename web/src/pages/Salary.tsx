@@ -65,6 +65,33 @@ function Detail({ userId, q, onClose }: { userId: string; q: Record<string, stri
   const [amount, setAmount] = useState('');
   const [wallet, setWallet] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [hrs, setHrs] = useState<{ id?: string; storeId: string; start: string; end: string } | null>(null);
+  const canEditHours = s.can('shift.edit_staff') || userId === s.user?.id;
+  const toLocal = (iso: string | null): string => (iso ? new Date(new Date(iso).getTime() - new Date(iso).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '');
+
+  async function saveHours() {
+    if (!hrs) return;
+    setError(null);
+    try {
+      const body = { userId, storeId: hrs.storeId, startedAt: new Date(hrs.start).toISOString(), endedAt: hrs.end ? new Date(hrs.end).toISOString() : undefined };
+      await api(hrs.id ? `/working-hours/${hrs.id}` : '/working-hours', { method: hrs.id ? 'PUT' : 'POST', body });
+      setHrs(null);
+      d.reload();
+      say('Успешно');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка');
+    }
+  }
+
+  async function removeHours(id: string) {
+    if (!confirm('Удалить запись о часах работы?')) return;
+    try {
+      await api(`/working-hours/${id}`, { method: 'DELETE' });
+      d.reload();
+    } catch (e) {
+      say(e instanceof Error ? e.message : 'Ошибка');
+    }
+  }
   const canPay = s.can('salary.view_others');
 
   async function pay() {
@@ -97,7 +124,29 @@ function Detail({ userId, q, onClose }: { userId: string; q: Record<string, stri
 
           <div className="h2" style={{ fontSize: 18 }}>Часы работы</div>
           {x.workingHours.length === 0 && <div className="muted">Нет данных за период</div>}
-          {x.workingHours.map((h) => <Line key={h.id} label={fmtDateTime(h.startedAt)} value={h.endedAt ? fmtDateTime(h.endedAt) : 'идёт'} />)}
+          {x.workingHours.map((h) => (
+            <div key={h.id} className="row" style={{ justifyContent: 'space-between', padding: '6px 0' }}>
+              <span>{fmtDateTime(h.startedAt)} — {h.endedAt ? fmtDateTime(h.endedAt) : 'идёт'}</span>
+              {canEditHours && (
+                <span className="row">
+                  <button className="icon-btn small" aria-label="Изменить часы" onClick={() => setHrs({ id: h.id, storeId: h.storeId, start: toLocal(h.startedAt), end: toLocal(h.endedAt) })}><Icon name="edit" size={16} /></button>
+                  <button className="icon-btn small" aria-label="Удалить часы" onClick={() => removeHours(h.id)}><Icon name="trash" size={16} /></button>
+                </span>
+              )}
+            </div>
+          ))}
+          {canEditHours && !hrs && <button className="link" onClick={() => setHrs({ storeId: s.storeId ?? s.stores[0]?.id ?? '', start: '', end: '' })}>+ Добавить часы</button>}
+          {hrs && (
+            <div className="card" style={{ marginTop: 8 }}>
+              <label className="field"><span>Начало</span><input type="datetime-local" value={hrs.start} onChange={(e) => setHrs({ ...hrs, start: e.target.value })} /></label>
+              <label className="field"><span>Окончание</span><input type="datetime-local" value={hrs.end} onChange={(e) => setHrs({ ...hrs, end: e.target.value })} /></label>
+              <label className="field"><span>Филиал</span>
+                <select value={hrs.storeId} onChange={(e) => setHrs({ ...hrs, storeId: e.target.value })}>{s.stores.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}</select>
+              </label>
+              {error && <div className="error" role="alert">{error}</div>}
+              <div className="row"><button className="btn light" onClick={() => setHrs(null)}>Отмена</button><button className="btn" disabled={!hrs.start} onClick={saveHours}>Сохранить</button></div>
+            </div>
+          )}
 
           <div className="h2" style={{ fontSize: 18 }}>Выплаты</div>
           {x.payments.length === 0 && <div className="muted">Нет данных за период</div>}

@@ -9,6 +9,20 @@ import { useSession } from '../session';
 import { Header, Modal, Spinner, StoreChips, useLoad, useToast } from '../ui';
 
 /** Смена: открытие с суммой в кассе, итоги по наличным и безналичным, внесение/изъятие, закрытие, история. */
+/** Выгрузка закрытых смен в CSV (для Excel: разделитель «;», UTF-8 с BOM). */
+function exportShifts(list: Shift[], storeName: string): void {
+  const head = ['Филиал', 'Открыта', 'Закрыта', 'Касса на начало', 'Продажи', 'Чеков', 'Наличные', 'Безнал', 'Возвраты наличными', 'Расходы наличными', 'Приёмки', 'Внесения', 'Изъятия', 'Ожидалось', 'Факт', 'Разница'];
+  const q = (v: string | number | null): string => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const rows = list.map((x) => [storeName, fmtDateTime(x.openedAt), x.closedAt ? fmtDateTime(x.closedAt) : '', x.openingCash, x.totals.sales, x.totals.checks, x.totals.cashSales, x.totals.nonCashSales, x.totals.cashReturns, x.totals.cashSpendings, x.totals.paidSupplies, x.totals.deposits, x.totals.withdrawals, x.expectedCash, x.actualCash, x.diff]);
+  const csv = String.fromCharCode(0xfeff) + [head, ...rows].map((r) => r.map(q).join(';')).join(String.fromCharCode(13, 10));
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'shifts.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 export default function ShiftPage() {
   const s = useSession();
   const nav = useNavigate();
@@ -104,7 +118,10 @@ export default function ShiftPage() {
           </>
         )}
 
-        <div className="h2">История смен</div>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="h2">История смен</div>
+          {closed.length > 0 && <button className="link" onClick={() => exportShifts(closed, s.stores.find((x) => x.id === store)?.name ?? '')}>Отчет по сменам (CSV)</button>}
+        </div>
         {closed.length === 0 && <div className="empty">Закрытых смен пока нет</div>}
         {closed.map((x) => (
           <div key={x.id} className="card click row" onClick={() => setViewing(x)}>
