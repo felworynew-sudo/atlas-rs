@@ -548,6 +548,7 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
             .execute(&mut *tx)
             .await?;
     }
+    settle_sale(&mut tx, ctx.org_id, ctx.user_id, sale_id, dto.store_id, 1.0, "sale").await?;
     tx.commit().await?;
     created_view(&s.pool, ctx.org_id, sale_id).await
 }
@@ -560,6 +561,51 @@ async fn created_view(pool: &PgPool, org: Uuid, id: Uuid) -> AppResult<Json<Sale
         .next()
         .map(Json)
         .ok_or_else(|| AppError::NotFound("Продажа не найдена".into()))
+}
+
+/// Зачисление (или возврат) выручки продажи на счета методов оплаты. Счёт задаётся в параметрах метода: `wallets{<филиал>: <счёт>}`;
+/// без счёта проводка не создаётся. `scale` — доля суммы продажи (1.0 — вся, для возврата — доля возвращаемой суммы).
+async fn settle_sale(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, org: Uuid, user: Uuid, sale_id: Uuid, store: Uuid, scale: f64, kind: &str) -> AppResult<()> {
+    let row: Option<(Option<Uuid>, Option<Uuid>, Option<f64>, Option<f64>, f64)> = sqlx::query_as(
+        "SELECT payment_method_id, second_payment_method_id, first_payment_value::float8, second_payment_value::float8, total::float8 FROM sales WHERE id=$1",
+    )
+    .bind(sale_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((m1, m2, v1, v2, total)) = row else { return Ok(()) };
+    let mut parts: Vec<(Uuid, f64)> = Vec::new();
+    match (m1, m2) {
+        (Some(a), Some(b)) => {
+            parts.push((a, v1.unwrap_or(0.0)));
+            parts.push((b, v2.unwrap_or(0.0)));
+        }
+        (Some(a), None) => parts.push((a, total)),
+        _ => {}
+    }
+    for (method, amount) in parts {
+        let amt = round2(amount * scale);
+        if amt.abs() < 0.005 {
+            continue;
+        }
+        let w: Option<(Option<String>,)> = sqlx::query_as("SELECT params->'wallets'->>$2 FROM list_items WHERE id=$1 AND organization_id=$3")
+            .bind(method)
+            .bind(store.to_string())
+            .bind(org)
+            .fetch_optional(&mut **tx)
+            .await?;
+        let Some(wallet) = w.and_then(|r| r.0).and_then(|t| Uuid::parse_str(&t).ok()) else { continue };
+        let (ok,): (i64,) = sqlx::query_as("SELECT count(*) FROM wallets WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL")
+            .bind(wallet)
+            .bind(org)
+            .fetch_one(&mut **tx)
+            .await?;
+        if ok == 0 {
+            continue;
+        }
+        let comment = if kind == "sale" { "Выручка от продажи" } else { "Возврат по продаже" };
+        crate::routes::finance::add_tx(tx, org, wallet, amt, kind, Some(sale_id), comment, user).await?;
+    }
+    Ok(())
 }
 
 pub async fn remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>) -> AppResult<Json<Value>> {
@@ -601,6 +647,8 @@ pub async fn remove(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<
             .await?;
     }
     sqlx::query("UPDATE sales SET deleted_at=now() WHERE id=$1").bind(id).execute(&mut *tx).await?;
+    crate::routes::finance::reverse_tx(&mut tx, id, "sale", ctx.user_id).await?;
+    crate::routes::finance::reverse_tx(&mut tx, id, "sale_return", ctx.user_id).await?;
     tx.commit().await?;
     crate::events::log(&s.pool, ctx.org_id, Some(store_id), ctx.user_id, "sale_deleted", &format!("Удалена продажа {}", &id.simple().to_string()[..8])).await;
     Ok(Json(json!({ "success": true })))
@@ -729,6 +777,9 @@ async fn create_return(
         .bind(amount)
         .execute(&mut *tx)
         .await?;
+    if total > 0.0 && amount > 0.0 {
+        settle_sale(&mut tx, ctx.org_id, ctx.user_id, id, store_id, -(amount / total), "sale_return").await?;
+    }
     tx.commit().await?;
     Ok(Json(ReturnView { id: return_id, sale_id: id, return_type: dto.return_type, restock: dto.restock, amount }))
 }

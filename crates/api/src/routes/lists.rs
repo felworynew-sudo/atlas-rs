@@ -70,6 +70,25 @@ fn copy_display(obj: &serde_json::Map<String, Value>, out: &mut Value) -> AppRes
         let m = v.as_object().filter(|m| m.values().all(Value::is_boolean)).ok_or_else(|| AppError::BadRequest("Некорректные настройки филиалов".into()))?;
         target.insert("stores".into(), Value::Object(m.clone()));
     }
+    if let Some(v) = obj.get("wallets") {
+        let m = v.as_object().ok_or_else(|| AppError::BadRequest("Некорректные счета зачисления".into()))?;
+        let mut clean = serde_json::Map::new();
+        for (store, w) in m {
+            if Uuid::parse_str(store).is_err() {
+                return Err(AppError::BadRequest("Некорректный филиал в счетах зачисления".into()));
+            }
+            if w.is_null() || w.as_str() == Some("") {
+                continue;
+            }
+            match w.as_str() {
+                Some(t) if Uuid::parse_str(t).is_ok() => {
+                    clean.insert(store.clone(), json!(t));
+                }
+                _ => return Err(AppError::BadRequest("Некорректный счёт зачисления".into())),
+            }
+        }
+        target.insert("wallets".into(), Value::Object(clean));
+    }
     Ok(())
 }
 

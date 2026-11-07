@@ -1,8 +1,9 @@
 import { Link, Navigate, useParams } from 'react-router-dom';
+import { api, type Wallet } from '../api';
 import { CrudList, type CrudConfig, type Field } from '../CrudList';
 import { rub } from '../money';
 import { useSession } from '../session';
-import { Header } from '../ui';
+import { Header, useLoad } from '../ui';
 import AgentDrafts from './AgentDrafts';
 import Appearance from './Appearance';
 import ApiTokens from './ApiTokens';
@@ -53,7 +54,7 @@ const ICON_OPTS = [opt('', 'Без иконки'), opt('card', 'Карта'), op
 const nameField: Field = { key: 'name', label: 'Название', type: 'text', required: true };
 
 /** Конфигурации универсальных списков. */
-function configs(stores: { id: string; name: string }[], can: (p: string) => boolean): Record<string, CrudConfig> {
+function configs(stores: { id: string; name: string }[], can: (p: string) => boolean, wallets: Wallet[]): Record<string, CrudConfig> {
   const edit = can('settings.edit');
   const storeOpts = stores.map((s) => opt(s.id, s.name));
   return {
@@ -108,6 +109,14 @@ function configs(stores: { id: string; name: string }[], can: (p: string) => boo
         { key: 'params.commission', label: 'Комиссия, %', type: 'number', defaultValue: '0' },
         { key: 'params.icon', label: 'Иконка', type: 'select', options: ICON_OPTS, defaultValue: '' },
         { key: 'params.label', label: 'Текст под иконкой', type: 'text' },
+        // счёт зачисления выручки — по каждому филиалу
+        ...stores.map((st): Field => ({
+          key: `params.wallets.${st.id}`,
+          label: `Счёт зачисления: ${st.name}`,
+          type: 'select',
+          options: [opt('', 'Не зачислять'), ...wallets.filter((w) => !w.storeId || w.storeId === st.id).map((w) => opt(w.id, w.name))],
+          defaultValue: '',
+        })),
       ],
       subtitle: (r) => `комиссия ${String((r.params as { commission?: number }).commission ?? 0)}%`,
     },
@@ -157,6 +166,7 @@ function configs(stores: { id: string; name: string }[], can: (p: string) => boo
 export default function Settings() {
   const { section } = useParams();
   const s = useSession();
+  const wallets = useLoad(() => api<Wallet[]>('/wallets'), []);
   if (!section) {
     const visible = SECTIONS.filter((x) => !x.perm || s.can(x.perm));
     return (
@@ -186,6 +196,6 @@ export default function Settings() {
   if (section === 'appearance') return <Appearance />;
   if (section === 'roles') return <Roles />;
   if (section === 'organization' || section === 'loyalty' || section === 'sales') return <SettingsForms kind={section} />;
-  const cfg = configs(s.stores, s.can)[section];
+  const cfg = configs(s.stores, s.can, wallets.data ?? [])[section];
   return cfg ? <CrudList key={section} config={cfg} /> : <Navigate to="/settings" replace />;
 }
