@@ -3,6 +3,11 @@ import { CrudList, type CrudConfig, type Field } from '../CrudList';
 import { rub } from '../money';
 import { useSession } from '../session';
 import { Header } from '../ui';
+import AgentDrafts from './AgentDrafts';
+import ApiTokens from './ApiTokens';
+import ExportImport from './ExportImport';
+import MarketplaceSettings from './MarketplaceSettings';
+import Profile from './Profile';
 import Roles from './Roles';
 import SettingsForms from './SettingsForms';
 import Users from './Users';
@@ -28,6 +33,11 @@ const SECTIONS: Section[] = [
   { id: 'organization', title: 'Настройки организации', perm: 'settings.edit' },
   { id: 'loyalty', title: 'Программа лояльности', perm: 'settings.edit' },
   { id: 'sales', title: 'Настройки продаж', perm: 'settings.edit' },
+  { id: 'marketplace', title: 'Настройки онлайн-каталога', perm: 'settings.edit' },
+  { id: 'export-import', title: 'Экспорт и импорт', perm: 'settings.export_import' },
+  { id: 'api-tokens', title: 'API-токены', perm: 'settings.edit' },
+  { id: 'agent-drafts', title: 'Черновики от ИИ-агента', perm: 'settings.edit' },
+  { id: 'profile', title: 'Профиль', perm: '' },
 ];
 
 const opt = (value: string, label: string) => ({ value, label });
@@ -131,7 +141,7 @@ export default function Settings() {
   const { section } = useParams();
   const s = useSession();
   if (!section) {
-    const visible = SECTIONS.filter((x) => s.can(x.perm));
+    const visible = SECTIONS.filter((x) => !x.perm || s.can(x.perm));
     return (
       <>
         <Header title="Настройки" />
@@ -146,8 +156,13 @@ export default function Settings() {
     );
   }
   const def = SECTIONS.find((x) => x.id === section);
-  if (!def || !s.can(def.perm)) return <Navigate to="/settings" replace />;
+  if (!def || (def.perm && !s.can(def.perm))) return <Navigate to="/settings" replace />;
   if (section === 'users') return <Users />;
+  if (section === 'marketplace') return <MarketplaceSettings />;
+  if (section === 'export-import') return <ExportImport />;
+  if (section === 'api-tokens') return <ApiTokens />;
+  if (section === 'agent-drafts') return <AgentDrafts />;
+  if (section === 'profile') return <Profile />;
   if (section === 'roles') return <Roles />;
   if (section === 'organization' || section === 'loyalty' || section === 'sales') return <SettingsForms kind={section} />;
   const cfg = configs(s.stores, s.can)[section];
