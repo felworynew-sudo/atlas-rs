@@ -164,11 +164,19 @@ pub struct MovementRow {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovementsQuery {
+    pub store_id: Uuid,
+    pub from: Option<DateTime<Utc>>,
+    pub to: Option<DateTime<Utc>>,
+}
+
 async fn movements(
     State(s): State<AppState>,
     ctx: AuthContext,
     Path(product_id): Path<Uuid>,
-    Query(q): Query<StoreQuery>,
+    Query(q): Query<MovementsQuery>,
 ) -> AppResult<Json<Vec<MovementRow>>> {
     ctx.require("stock.view")?;
     let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM products WHERE id=$1 AND organization_id=$2")

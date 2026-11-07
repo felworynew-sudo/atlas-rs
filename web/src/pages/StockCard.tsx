@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, type Movement, type Product, type StockRow } from '../api';
-import { fmtDateTime, MOVEMENT_KINDS } from '../dates';
+import { daysAgoLocal, endOfDay, fmtDate, fmtDateTime, MOVEMENT_KINDS, startOfDay, todayLocal } from '../dates';
 import { num } from '../money';
 import { useSession } from '../session';
-import { Header, Spinner, StoreChips, useLoad, useToast } from '../ui';
+import { DateRange, Header, Spinner, StoreChips, useLoad, useToast } from '../ui';
 
 /** Карточка товара «История движения»: пороги, быстрые действия и журнал остатков. */
 export default function StockCard() {
@@ -16,7 +16,9 @@ export default function StockCard() {
   const [store, setStore] = useState(params.get('storeId') ?? s.storeId ?? '');
   const product = useLoad(() => api<Product>(`/products/${id}`), [id]);
   const stock = useLoad(() => api<StockRow[]>('/stocks', { query: { storeId: store } }), [store]);
-  const moves = useLoad(() => api<Movement[]>(`/stocks/${id}/movements`, { query: { storeId: store } }), [id, store]);
+  const [from, setFrom] = useState(daysAgoLocal(30));
+  const [to, setTo] = useState(todayLocal());
+  const moves = useLoad(() => api<Movement[]>(`/stocks/${id}/movements`, { query: { storeId: store, from: startOfDay(from), to: endOfDay(to) } }), [id, store, from, to]);
   const [important, setImportant] = useState(false);
   const [threshold, setThreshold] = useState('');
 
@@ -34,6 +36,10 @@ export default function StockCard() {
     for (const e of moves.data ?? []) m.set(e.kind, (m.get(e.kind) ?? 0) + e.delta);
     return [...m.entries()];
   }, [moves.data]);
+
+  // журнал отсортирован от новых к старым: начало периода — «было» у самого старого движения, конец — «стало» у самого нового
+  const opening = (moves.data ?? []).length > 0 ? (moves.data ?? [])[(moves.data ?? []).length - 1].qtyBefore : current;
+  const closing = (moves.data ?? []).length > 0 ? (moves.data ?? [])[0].qtyAfter : current;
 
   async function save() {
     try {
@@ -71,26 +77,32 @@ export default function StockCard() {
         <button className="btn" onClick={save}>Сохранить</button>
 
         <div className="h2">История движения товара</div>
+        <DateRange from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b); }} />
         {moves.loading && <Spinner />}
         {totals.length > 0 && (
           <div className="card">
+            <div className="row" style={{ justifyContent: 'space-between' }}><span>Количество на начало периода</span><b>{num(opening)}</b></div>
             {totals.map(([kind, sum]) => (
               <div key={kind} className="row" style={{ justifyContent: 'space-between' }}>
                 <span>{MOVEMENT_KINDS[kind] ?? kind}</span>
                 <b className={sum < 0 ? 'low' : ''}>{sum > 0 ? '+' : ''}{num(sum)}</b>
               </div>
             ))}
-            <div className="row" style={{ justifyContent: 'space-between', marginTop: 8 }}><span>Текущее количество в системе</span><b>{num(current)}</b></div>
+            <div className="row" style={{ justifyContent: 'space-between', marginTop: 8 }}><b>Итого к концу периода</b><b>{num(closing)}</b></div>
+            <div className="row" style={{ justifyContent: 'space-between', marginTop: 4 }}><span className="sub">Текущее количество в системе</span><span className="sub">{num(current)}</span></div>
           </div>
         )}
         {!moves.loading && (moves.data ?? []).length === 0 && <div className="empty">Движений пока нет</div>}
-        {(moves.data ?? []).map((e) => (
-          <div key={e.id} className="card">
+        {(moves.data ?? []).map((e, i, arr) => (
+          <div key={e.id}>
+            {(i === 0 || fmtDate(arr[i - 1].createdAt) !== fmtDate(e.createdAt)) && <div className="day">{fmtDate(e.createdAt)}</div>}
+          <div className="card">
             <div className="row" style={{ justifyContent: 'space-between' }}>
               <span className="title">{MOVEMENT_KINDS[e.kind] ?? e.kind}</span>
               <span className={e.delta < 0 ? 'low price' : 'price'}>{e.delta > 0 ? '+' : ''}{num(e.delta)}</span>
             </div>
             <div className="sub">{fmtDateTime(e.createdAt)} · Предыдущее значение {num(e.qtyBefore)}</div>
+          </div>
           </div>
         ))}
       </main>

@@ -9,6 +9,17 @@ import { useSession } from '../session';
 import { printInvoice, type PrintTemplate } from '../printInvoice';
 import { Header, Spinner, StoreChips, useLoad, useToast } from '../ui';
 
+/** Уменьшает фото накладной до 1280 px по длинной стороне и сжимает в JPEG, чтобы запрос оставался небольшим. */
+async function shrink(file: File): Promise<string> {
+  const bmp = await createImageBitmap(file);
+  const k = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement('canvas');
+  c.width = Math.round(bmp.width * k);
+  c.height = Math.round(bmp.height * k);
+  c.getContext('2d')?.drawImage(bmp, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', 0.7);
+}
+
 interface Line { productId: string; name: string; qty: string; price: string }
 
 /** Новая приёмка (по товару или по заказу поставщику) и просмотр/удаление существующей. */
@@ -61,6 +72,27 @@ export default function SupplyForm() {
   const total = round2(lines.reduce((sum, l) => sum + (Number(l.qty.replace(',', '.')) || 0) * (Number(l.price.replace(',', '.')) || 0), 0));
   const setLine = (i: number, patch: Partial<Line>) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
 
+  const [photo, setPhoto] = useState('');
+  const [comment, setComment] = useState('');
+  const [barcode, setBarcode] = useState('');
+
+  async function addByBarcode() {
+    const code = barcode.trim();
+    if (!code) return;
+    try {
+      const found = (await api<Product[]>('/products', { query: { storeId: store, search: code } })).find((p) => p.barcodes.includes(code) && !p.isService);
+      if (!found) {
+        setError('Товар с таким штрихкодом не найден');
+        return;
+      }
+      setError(null);
+      setLines((ls) => (ls.some((l) => l.productId === found.id) ? ls.map((l) => (l.productId === found.id ? { ...l, qty: String((Number(l.qty) || 0) + 1) } : l)) : [...ls, { productId: found.id, name: found.name, qty: '1', price: String(found.purchasePrice) }]));
+      setBarcode('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка');
+    }
+  }
+
   async function save() {
     setBusy(true);
     setError(null);
@@ -74,6 +106,8 @@ export default function SupplyForm() {
           hasReturn,
           pricesChanged,
           paid,
+          invoicePhoto: photo || undefined,
+          comment: comment || undefined,
           walletId: paid && wallet ? wallet : undefined,
           items: lines.map((l) => ({ productId: l.productId, qty: Number(l.qty.replace(',', '.')), price: Number(l.price.replace(',', '.')) })),
         },
@@ -116,6 +150,8 @@ export default function SupplyForm() {
               <tr><td colSpan={3}><b>Итого</b></td><td className="num"><b>{rub(d.total)}</b></td></tr>
             </tbody>
           </table>
+          {d.comment && <div className="sub" style={{ marginTop: 8 }}>Комментарий: {d.comment}</div>}
+          {d.invoicePhoto && <img src={d.invoicePhoto} alt="Фото накладной" style={{ maxWidth: '100%', borderRadius: 8, marginTop: 12 }} />}
           {(templates.data ?? []).length > 0 && (
             <div className="row" style={{ marginTop: 16, flexWrap: 'wrap' }}>
               {(templates.data ?? []).filter((t) => !t.params.storeId || t.params.storeId === d.storeId).map((t) => (
@@ -159,6 +195,9 @@ export default function SupplyForm() {
 
         <div className="h2">Товары</div>
         <button className="btn light" style={{ marginBottom: 12 }} onClick={() => setPicker(true)}>+ Добавить товар</button>
+        <label className="field"><span>Штрихкод (Enter — добавить)</span>
+          <input type="text" inputMode="numeric" value={barcode} placeholder="Введите штрих-код" onChange={(e) => setBarcode(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void addByBarcode(); } }} />
+        </label>
         {lines.map((l, i) => (
           <div key={l.productId} className="card">
             <div className="row">
@@ -185,6 +224,14 @@ export default function SupplyForm() {
             </select>
           </label>
         )}
+        <label className="field"><span>Фото накладной</span>
+          <input type="file" accept="image/*" onChange={async (e) => {
+            const f = e.target.files?.[0];
+            if (f) setPhoto(await shrink(f).catch(() => ''));
+          }} />
+        </label>
+        {photo && <img src={photo} alt="Фото накладной" style={{ maxWidth: '100%', borderRadius: 8, marginBottom: 12 }} />}
+        <label className="field"><span>Комментарий</span><input type="text" value={comment} onChange={(e) => setComment(e.target.value)} /></label>
         {error && <div className="error" role="alert">{error}</div>}
         <button className="btn" disabled={busy || lines.length === 0 || !store} onClick={save}>Сохранить</button>
       </main>

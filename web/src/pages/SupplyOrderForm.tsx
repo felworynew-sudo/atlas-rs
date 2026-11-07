@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { api, type Suggestion, type Supplier, type SupplyOrder } from '../api';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { api, type StockRow, type Suggestion, type Supplier, type SupplyOrder } from '../api';
 import { ORDER_STATUSES, todayLocal } from '../dates';
 import { Icon } from '../Icon';
 import { num, rub, round2 } from '../money';
@@ -19,7 +19,10 @@ export default function SupplyOrderForm() {
   const [toast, say] = useToast();
   const sups = useLoad(() => api<Supplier[]>('/suppliers'), []);
   const existing = useLoad(() => (isNew ? Promise.resolve(null) : api<SupplyOrder>(`/supply-orders/${id}`)), [id]);
-  const [store, setStore] = useState(s.storeId ?? '');
+  const [params] = useSearchParams();
+  const [store, setStore] = useState(params.get('storeId') ?? s.storeId ?? '');
+  const stock = useLoad(() => (s.can('stock.view') && store ? api<StockRow[]>('/stocks', { query: { storeId: store } }) : Promise.resolve([] as StockRow[])), [store]);
+  const stockMap = new Map((stock.data ?? []).map((r) => [r.productId, r]));
   const [supplier, setSupplier] = useState('');
   const [date, setDate] = useState(todayLocal());
   const [status, setStatus] = useState('draft');
@@ -37,12 +40,18 @@ export default function SupplyOrderForm() {
     setLines(o.items.map((i) => ({ productId: i.productId, name: i.name, qty: i.qty, unitPrice: i.unitPrice })));
   }, [existing.data]);
 
+  // переход из «+» категории на экране остатков: сразу предлагаем товары категории
+  useEffect(() => {
+    if (isNew && params.get('category') && store) void suggest();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const total = round2(lines.reduce((sum, l) => sum + l.qty * l.unitPrice, 0));
   const setQty = (i: number, qty: number) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, qty: Math.max(qty, 0) } : l)).filter((l) => l.qty > 0));
 
   async function suggest() {
     try {
-      const r = await api<Suggestion[]>('/supply-orders/suggest', { query: { storeId: store, supplierId: supplier || undefined } });
+      const r = await api<Suggestion[]>('/supply-orders/suggest', { query: { storeId: store, supplierId: supplier || undefined, categoryId: params.get('category') || undefined } });
       if (r.length === 0) say('Все товары выше порога остатка');
       setLines(r.map((x) => ({ productId: x.productId, name: x.name, qty: x.suggestedQty, unitPrice: x.unitPrice })));
     } catch (e) {
@@ -104,6 +113,10 @@ export default function SupplyOrderForm() {
         {lines.map((l, i) => (
           <div key={l.productId} className="card">
             <div className="title">{l.name}</div>
+            {stockMap.get(l.productId) && (() => {
+              const r = stockMap.get(l.productId) as StockRow;
+              return <div className="sub">Остаток {num(r.qty)} · продажи за неделю {num(r.sold7)} · списания за неделю {num(r.writtenOff7)} · порог {num(r.threshold || 1)}</div>;
+            })()}
             <div className="row" style={{ marginTop: 8 }}>
               <span className="label" style={{ margin: 0 }}>Количество на заказ</span>
               <button className="qty-btn" aria-label={`Меньше ${l.name}`} onClick={() => setQty(i, l.qty - 1)}><Icon name="minus" size={16} /></button>

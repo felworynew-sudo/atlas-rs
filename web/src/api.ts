@@ -145,6 +145,7 @@ export interface Supply {
   hasReturn: boolean;
   pricesChanged: boolean;
   paid: boolean;
+  invoicePhoto?: string | null;
   comment: string;
   total: number;
   items: SupplyItem[];
