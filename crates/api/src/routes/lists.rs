@@ -55,6 +55,24 @@ fn check_kind(kind: &str) -> AppResult<()> {
     }
 }
 
+/// Иконка, подпись под иконкой и доступность по филиалам (для методов оплаты и покупки).
+fn copy_display(obj: &serde_json::Map<String, Value>, out: &mut Value) -> AppResult<()> {
+    let target = out.as_object_mut().expect("object");
+    if let Some(v) = obj.get("icon") {
+        let t = v.as_str().filter(|t| t.len() <= 32).ok_or_else(|| AppError::BadRequest("Некорректная иконка".into()))?;
+        target.insert("icon".into(), json!(t));
+    }
+    if let Some(v) = obj.get("label") {
+        let t = v.as_str().filter(|t| t.chars().count() <= 40).ok_or_else(|| AppError::BadRequest("Подпись не длиннее 40 символов".into()))?;
+        target.insert("label".into(), json!(t));
+    }
+    if let Some(v) = obj.get("stores") {
+        let m = v.as_object().filter(|m| m.values().all(Value::is_boolean)).ok_or_else(|| AppError::BadRequest("Некорректные настройки филиалов".into()))?;
+        target.insert("stores".into(), Value::Object(m.clone()));
+    }
+    Ok(())
+}
+
 /// Проверка и нормализация параметров по виду списка.
 fn check_params(kind: &str, params: &Value) -> AppResult<Value> {
     let obj = params.as_object().cloned().unwrap_or_default();
@@ -69,15 +87,19 @@ fn check_params(kind: &str, params: &Value) -> AppResult<Value> {
             if !(0.0..=100.0).contains(&commission) {
                 return Err(AppError::BadRequest("Комиссия от 0 до 100%".into()));
             }
-            Ok(json!({ "kind": k, "commission": commission }))
+            let mut out = json!({ "kind": k, "commission": commission });
+            copy_display(&obj, &mut out)?;
+            Ok(out)
         }
         "purchase_methods" => {
             let m = num("markupPercent").unwrap_or(0.0);
-            if !(0.0..=1000.0).contains(&m) {
-                return Err(AppError::BadRequest("Надбавка от 0 до 1000%".into()));
+            if !(-100.0..=1000.0).contains(&m) {
+                return Err(AppError::BadRequest("Надбавка от −100 (скидка) до 1000%".into()));
             }
             let delivery = obj.get("delivery").and_then(Value::as_bool).unwrap_or(false);
-            Ok(json!({ "markupPercent": m, "delivery": delivery }))
+            let mut out = json!({ "markupPercent": m, "delivery": delivery });
+            copy_display(&obj, &mut out)?;
+            Ok(out)
         }
         "discounts" => {
             let t = obj.get("type").and_then(Value::as_str).unwrap_or("percent");

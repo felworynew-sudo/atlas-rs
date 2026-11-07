@@ -66,7 +66,7 @@ pub fn totals(i: &TotalsInput) -> Result<Totals, String> {
         return Err("Некорректная сумма".into());
     }
     let subtotal = round2(i.subtotal);
-    let markup = round2(subtotal * i.markup_percent.max(0.0) / 100.0);
+    let markup = round2(subtotal * i.markup_percent.max(-100.0) / 100.0);
     let discount = match i.discount {
         Discount::None => 0.0,
         Discount::Percent(p) => {

@@ -47,6 +47,7 @@ const SECTIONS: Section[] = [
 ];
 
 const opt = (value: string, label: string) => ({ value, label });
+const ICON_OPTS = [opt('', 'Без иконки'), opt('card', 'Карта'), opt('cart', 'Корзина'), opt('truck', 'Доставка'), opt('people', 'Люди'), opt('file-text', 'Документ'), opt('clipboard', 'Заказ'), opt('pricetags', 'Ценник'), opt('hash', 'Код / QR'), opt('bell', 'Колокольчик'), opt('clock', 'Часы'), opt('check', 'Галочка')];
 const nameField: Field = { key: 'name', label: 'Название', type: 'text', required: true };
 
 /** Конфигурации универсальных списков. */
@@ -103,6 +104,8 @@ function configs(stores: { id: string; name: string }[], can: (p: string) => boo
         nameField,
         { key: 'params.kind', label: 'Категория', type: 'select', options: [opt('cash', 'Наличные'), opt('qr', 'QR'), opt('terminal', 'Терминал'), opt('other', 'Другое')], defaultValue: 'cash' },
         { key: 'params.commission', label: 'Комиссия, %', type: 'number', defaultValue: '0' },
+        { key: 'params.icon', label: 'Иконка', type: 'select', options: ICON_OPTS, defaultValue: '' },
+        { key: 'params.label', label: 'Текст под иконкой', type: 'text' },
       ],
       subtitle: (r) => `комиссия ${String((r.params as { commission?: number }).commission ?? 0)}%`,
     },
@@ -110,8 +113,14 @@ function configs(stores: { id: string; name: string }[], can: (p: string) => boo
       title: 'Методы покупки',
       path: '/lists/purchase_methods',
       canEdit: edit,
-      fields: [nameField, { key: 'params.markupPercent', label: 'Надбавка, %', type: 'number', defaultValue: '0' }, { key: 'params.delivery', label: 'Доставка', type: 'checkbox' }],
-      subtitle: (r) => `надбавка ${String((r.params as { markupPercent?: number }).markupPercent ?? 0)}%`,
+      fields: [
+        nameField,
+        { key: 'params.markupPercent', label: 'Надбавка, % (отрицательное — скидка: −10 = скидка 10%)', type: 'number', defaultValue: '0' },
+        { key: 'params.delivery', label: 'Доставка', type: 'checkbox' },
+        { key: 'params.icon', label: 'Иконка', type: 'select', options: ICON_OPTS, defaultValue: '' },
+        { key: 'params.label', label: 'Текст под иконкой', type: 'text' },
+      ],
+      subtitle: (r) => { const m = Number((r.params as { markupPercent?: number }).markupPercent ?? 0); return m < 0 ? `скидка ${String(-m)}%` : `надбавка ${String(m)}%`; },
     },
     discounts: {
       title: 'Скидки',

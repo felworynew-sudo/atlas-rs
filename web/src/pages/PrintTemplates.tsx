@@ -77,7 +77,7 @@ export default function PrintTemplates() {
           <div className="h2" style={{ fontSize: 16 }}>Включать поля</div>
           {INVOICE_FIELDS.map(([k, l]) => (
             <label key={k} className="row" style={{ gap: 8, marginBottom: 8 }}>
-              <input type="checkbox" style={{ width: 20, height: 20 }} checked={draft.p.fields?.[k] ?? k !== 'vat'} onChange={(e) => setP({ fields: { ...(draft.p.fields ?? {}), [k]: e.target.checked } })} />
+              <input type="checkbox" style={{ width: 20, height: 20 }} checked={draft.p.fields?.[k] ?? !['vat', 'customer', 'phone', 'address'].includes(k)} onChange={(e) => setP({ fields: { ...(draft.p.fields ?? {}), [k]: e.target.checked } })} />
               <span>{l}</span>
             </label>
           ))}

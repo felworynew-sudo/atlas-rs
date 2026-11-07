@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, type ListItem, type Sale } from '../api';
+import { api, type Client, type ListItem, type Sale } from '../api';
+import { printInvoice, type PrintTemplate } from '../printInvoice';
 import { num, rub } from '../money';
 import { useSession } from '../session';
 import { Header, Modal, Spinner, useLoad, useToast } from '../ui';
+
+const name = (list: ListItem[] | null, id: string | null | undefined): string => (id ? (list ?? []).find((x) => x.id === id)?.name ?? '—' : '—');
 
 export default function SaleDetail() {
   const { id = '' } = useParams();
@@ -11,6 +14,11 @@ export default function SaleDetail() {
   const nav = useNavigate();
   const [toast, say] = useToast();
   const sale = useLoad(() => api<Sale>(`/sales/${id}`), [id]);
+  const pays = useLoad(() => api<ListItem[]>('/lists/payment_methods'), []);
+  const purchases = useLoad(() => api<ListItem[]>('/lists/purchase_methods'), []);
+  const templates = useLoad(() => api<PrintTemplate[]>('/lists/print_templates'), []);
+  const clientId = sale.data?.clientId ?? null;
+  const client = useLoad(() => (clientId && s.can('client.view') ? api<Client>(`/clients/${clientId}`) : Promise.resolve(null)), [clientId]);
   const reasons = useLoad(() => api<ListItem[]>('/lists/return_reasons'), []);
   const [returning, setReturning] = useState(false);
   const [qty, setQty] = useState<Record<string, string>>({});
@@ -58,6 +66,14 @@ export default function SaleDetail() {
         <div className="card" style={{ marginTop: 14 }}>
           <div className="title">{rub(d.total)}</div>
           <div className="sub">{d.userName} · {s.stores.find((x) => x.id === d.storeId)?.name} · {when}</div>
+          <div className="sub">
+            Оплата: {name(pays.data, d.paymentMethodId)}{d.firstPaymentValue != null ? ` ${rub(d.firstPaymentValue)}` : ''}
+            {d.secondPaymentMethodId ? ` + ${name(pays.data, d.secondPaymentMethodId)} ${rub(d.secondPaymentValue ?? 0)}` : ''}
+            {d.purchaseMethodId ? ` · ${name(purchases.data, d.purchaseMethodId)}` : ''}
+          </div>
+          {client.data && <div className="sub">Клиент: {client.data.name} {client.data.phone}</div>}
+          {d.delivery && <div className="sub">Доставка: {d.deliveryAddress || 'без адреса'} {d.deliveryPhone}</div>}
+          {d.comment && <div className="sub">Комментарий: {d.comment}</div>}
         </div>
         <table className="table">
           <thead><tr><th>Название</th><th className="num">Кол-во</th><th className="num">Сумма</th></tr></thead>
@@ -69,10 +85,24 @@ export default function SaleDetail() {
                 <td className="num">{rub(i.price * i.qty)}</td>
               </tr>
             ))}
+            {(d.markupAmount ?? 0) !== 0 && <tr><td colSpan={2}>{(d.markupAmount ?? 0) > 0 ? 'Надбавка' : 'Скидка метода покупки'}</td><td className="num">{(d.markupAmount ?? 0) > 0 ? '+' : '−'}{rub(Math.abs(d.markupAmount ?? 0))}</td></tr>}
+            {(d.deliveryPrice ?? 0) > 0 && <tr><td colSpan={2}>Доставка</td><td className="num">+{rub(d.deliveryPrice ?? 0)}</td></tr>}
             {d.discountAmount > 0 && <tr><td colSpan={2}>Скидка</td><td className="num">−{rub(d.discountAmount)}</td></tr>}
+            {(d.bonusReduction ?? 0) > 0 && <tr><td colSpan={2}>Оплата бонусами</td><td className="num">−{rub(d.bonusReduction ?? 0)}</td></tr>}
             <tr><td colSpan={2}><b>Итого</b></td><td className="num"><b>{rub(d.total)}</b></td></tr>
           </tbody>
         </table>
+        {(d.bonusAccumulation ?? 0) > 0 && <div className="muted" style={{ margin: '8px 0' }}>Начислено бонусов: {rub(d.bonusAccumulation ?? 0)}</div>}
+        {(templates.data ?? []).length > 0 && (
+          <div className="row" style={{ flexWrap: 'wrap', margin: '12px 0' }}>
+            {(templates.data ?? []).filter((t) => !t.params.storeId || t.params.storeId === d.storeId).map((t) => (
+              <button key={t.id} className="btn light inline" onClick={() => {
+                const ok = printInvoice(t.params, { number: d.id.slice(0, 8).toUpperCase(), date: d.saleDate, supplier: '', customer: client.data?.name, phone: client.data?.phone || d.deliveryPhone, address: client.data?.address || d.deliveryAddress, items: d.items.map((i) => ({ name: i.name, qty: i.qty, price: i.price })), total: d.total });
+                if (!ok) say('Разрешите всплывающие окна для печати');
+              }}>Печать: {t.name}</button>
+            ))}
+          </div>
+        )}
         {d.returnedAmount > 0 && <div className="low" style={{ margin: '12px 0' }}>Возвращено {rub(d.returnedAmount)}</div>}
 
         <div style={{ marginTop: 24, display: 'grid', gap: 10 }}>

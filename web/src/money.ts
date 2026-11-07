@@ -28,7 +28,7 @@ export interface Totals {
 /** Сумма позиций + надбавка метода покупки − скидка (как `domain::sale::totals` на сервере). */
 export function saleTotals(lines: CartLine[], markupPercent: number, discount: Discount): Totals {
   const subtotal = round2(lines.reduce((s, l) => s + l.price * l.qty, 0));
-  const markup = round2((subtotal * Math.max(markupPercent, 0)) / 100);
+  const markup = round2((subtotal * Math.max(markupPercent, -100)) / 100);
   let d = 0;
   if (discount.type === 'percent') d = round2((subtotal * Math.min(Math.max(discount.value, 0), 100)) / 100);
   if (discount.type === 'amount') d = Math.min(round2(Math.max(discount.value, 0)), subtotal);

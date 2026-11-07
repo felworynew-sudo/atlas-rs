@@ -266,6 +266,17 @@ export interface Sale {
   clientId: string | null;
   paymentMethodId: string | null;
   purchaseMethodId: string | null;
+  secondPaymentMethodId?: string | null;
+  firstPaymentValue?: number | null;
+  secondPaymentValue?: number | null;
+  markupAmount?: number;
+  bonusReduction?: number;
+  bonusAccumulation?: number;
+  delivery?: boolean;
+  deliveryAddress?: string;
+  deliveryPhone?: string;
+  deliveryPrice?: number;
+  comment?: string;
   subtotal: number;
   discountAmount: number;
   total: number;

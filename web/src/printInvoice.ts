@@ -21,6 +21,9 @@ export const INVOICE_FIELDS: [string, string][] = [
   ['number', 'Номер накладной'],
   ['date', 'Дата'],
   ['supplier', 'Поставщик'],
+  ['customer', 'Покупатель'],
+  ['phone', 'Телефон клиента'],
+  ['address', 'Адрес клиента'],
   ['table', 'Таблица товаров'],
   ['total', 'Общая сумма'],
   ['words', 'Сумма прописью'],
@@ -77,6 +80,9 @@ export interface InvoiceData {
   number: string;
   date: string;
   supplier: string;
+  customer?: string;
+  phone?: string;
+  address?: string;
   items: { name: string; qty: number; price: number }[];
   total: number;
 }
@@ -97,7 +103,7 @@ table{border-collapse:collapse;width:100%;margin:12px 0}td,th{border:1px solid #
 .signs{display:flex;justify-content:space-between;margin-top:40px}.sign span{display:inline-block;border-bottom:1px solid #000;width:160px;margin-left:8px}
 @page{size:${esc(t.pageSize || 'A4')}}</style>
 <h1>${esc(t.title || 'Накладная')}</h1>${t.subtitle ? `<h2>${esc(t.subtitle)}</h2>` : ''}
-${on('number') ? `<div>№ ${esc(d.number)}</div>` : ''}${on('date') ? `<div>Дата: ${esc(fmtDate(d.date))}</div>` : ''}${on('supplier') ? `<div>Поставщик: ${esc(d.supplier)}</div>` : ''}
+${on('number') ? `<div>№ ${esc(d.number)}</div>` : ''}${on('date') ? `<div>Дата: ${esc(fmtDate(d.date))}</div>` : ''}${on('supplier') && d.supplier ? `<div>Поставщик: ${esc(d.supplier)}</div>` : ''}${f.customer === true && d.customer ? `<div>Покупатель: ${esc(d.customer)}</div>` : ''}${f.phone === true && d.phone ? `<div>Телефон: ${esc(d.phone)}</div>` : ''}${f.address === true && d.address ? `<div>Адрес: ${esc(d.address)}</div>` : ''}
 ${on('table') ? `<table><thead><tr><th>№</th><th>Товар</th><th class="r">Кол-во</th><th class="r">Цена</th><th class="r">Сумма</th></tr></thead><tbody>${rows}</tbody></table>` : ''}
 ${on('total') ? `<div><b>Итого: ${esc(rub(d.total))}</b></div>` : ''}${vat ? `<div>В том числе НДС 20%: ${esc(rub((d.total * 20) / 120))}</div>` : ''}
 ${on('words') ? `<div>${esc(amountInWords(d.total))}</div>` : ''}

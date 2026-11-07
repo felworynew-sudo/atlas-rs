@@ -1,12 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type PriceType, type Category, type Client, type ListItem, type Product, type Sale, type SavedCart, type StockRow } from '../api';
-import { Icon } from '../Icon';
+import { Icon, type IconName } from '../Icon';
 import { change, num, rub, saleTotals, type CartLine, type Discount } from '../money';
 import { useSession } from '../session';
 import { Header, Modal, Spinner, useLoad, useMedia, useToast } from '../ui';
 
 const BILLS = [1, 5, 10, 50, 100, 500, 1000, 5000];
+
+/** Иконка метода оплаты или покупки, выбранная в настройках. */
+const methodIcon = (m: ListItem) => {
+  const name = m.params.icon as IconName | undefined;
+  return name ? <><Icon name={name} size={16} />{' '}</> : null;
+};
 
 export default function NewSale() {
   const s = useSession();
@@ -23,6 +29,11 @@ export default function NewSale() {
   const discounts = useLoad(() => api<ListItem[]>('/lists/discounts'), []);
   const carts = useLoad(() => api<SavedCart[]>('/saved-carts', { query: { storeId } }), [storeId]);
 
+  const sset = useLoad(() => api<Record<string, unknown>>('/sale-settings'), []);
+  const flag = (k: string, d: boolean): boolean => (typeof sset.data?.[k] === 'boolean' ? (sset.data[k] as boolean) : d);
+  const [saleComment, setSaleComment] = useState('');
+  const [saleDate, setSaleDate] = useState('');
+  const [tableNo, setTableNo] = useState('');
   const modifiers = useLoad(() => api<ListItem[]>('/lists/product_modifiers'), []);
   const priceTypes = useLoad(() => api<PriceType[]>('/price-types'), []);
   const [rawLines, setLines] = useState<CartLine[]>([]);
@@ -113,9 +124,9 @@ export default function NewSale() {
   function add(p: Product) {
     const price = p.stores.find((x) => x.storeId === storeId)?.salePrice ?? 0;
     setLines((ls) => {
-      const i = ls.findIndex((l) => l.productId === p.id);
+      const i = flag('mergeSimilarItems', true) ? ls.findIndex((l) => l.productId === p.id) : -1;
       if (i >= 0) return ls.map((l, k) => (k === i ? { ...l, qty: l.qty + 1 } : l));
-      return [...ls, { key: p.id, productId: p.id, name: p.name, price, qty: 1 }];
+      return [...ls, { key: flag('mergeSimilarItems', true) ? p.id : `${p.id}-${Date.now()}-${ls.length}`, productId: p.id, name: p.name, price, qty: 1 }];
     });
     if (!wide) setCatalogOpen(false);
   }
@@ -127,6 +138,9 @@ export default function NewSale() {
   function reset() {
     setLines([]);
     setBonusInput('');
+    setSaleComment('');
+    setSaleDate('');
+    setTableNo('');
     setCashbackOn(true);
     setDeliveryOn(false);
     setDeliveryAddress('');
@@ -161,6 +175,8 @@ export default function NewSale() {
           discountPercentage: discount.type === 'percent' ? discount.value : undefined,
           discountAmount: discount.type === 'amount' ? discount.value : undefined,
           idempotencyKey: idem.current,
+          comment: [tableNo ? `Стол ${tableNo}` : '', saleComment].filter(Boolean).join('. ') || undefined,
+          saleDate: saleDate ? new Date(`${saleDate}T12:00:00`).toISOString() : undefined,
           items: lines.map((l) => (l.productId ? { productId: l.productId, qty: l.qty, price: l.price } : { name: l.name, qty: l.qty, price: l.price })),
         },
       });
@@ -271,12 +287,12 @@ export default function NewSale() {
 
       <div className="chips">
         {(purchases.data ?? []).map((p) => (
-          <button key={p.id} className={`chip small${p.id === purchase?.id ? ' active' : ''}`} onClick={() => setPurchaseId(p.id)}>{p.name}</button>
+          <button key={p.id} className={`chip small${p.id === purchase?.id ? ' active' : ''}`} onClick={() => setPurchaseId(p.id)}>{methodIcon(p)}{String(p.params.label ?? '') || p.name}</button>
         ))}
       </div>
       <div className="chips">
         {(payments.data ?? []).map((p) => (
-          <button key={p.id} className={`chip small${p.id === payment?.id ? ' active' : ''}`} onClick={() => setPaymentId(p.id)}>{p.name}</button>
+          <button key={p.id} className={`chip small${p.id === payment?.id ? ' active' : ''}`} onClick={() => setPaymentId(p.id)}>{methodIcon(p)}{String(p.params.label ?? '') || p.name}</button>
         ))}
       </div>
       {(priceTypes.data ?? []).length > 0 && (
@@ -336,6 +352,9 @@ export default function NewSale() {
           </label>
         </div>
       )}
+      {flag('dateFieldVisible', false) && <label className="field"><span>Дата продажи</span><input type="date" value={saleDate} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setSaleDate(e.target.value)} /></label>}
+      {flag('tableNumberFieldVisible', false) && <label className="field"><span>Номер стола</span><input type="text" value={tableNo} onChange={(e) => setTableNo(e.target.value)} /></label>}
+      {flag('commentFieldVisible', false) && <label className="field"><span>Комментарий</span><input type="text" value={saleComment} onChange={(e) => setSaleComment(e.target.value)} /></label>}
       <label className="row" style={{ gap: 8, marginBottom: 8 }}>
         <input type="checkbox" checked={deliveryOn} style={{ width: 20, height: 20 }} onChange={(e) => { setDeliveryOn(e.target.checked); if (e.target.checked) { if (!deliveryAddress && client?.address) setDeliveryAddress(client.address); if (!deliveryPhone && client?.phone) setDeliveryPhone(client.phone); } }} />
         <span>Доставка</span>
@@ -359,7 +378,7 @@ export default function NewSale() {
       )}
 
       {error && <div className="error" role="alert">{error}</div>}
-      <button className="btn light" style={{ marginBottom: 10 }} disabled={lines.length === 0} onClick={postpone}>Отложить</button>
+      {flag('showSaveCartForLater', true) && <button className="btn light" style={{ marginBottom: 10 }} disabled={lines.length === 0} onClick={postpone}>Отложить</button>}
       <button className="btn" disabled={lines.length === 0 || busy || mixedInvalid} onClick={checkout}>Готово</button>
     </section>
   );
