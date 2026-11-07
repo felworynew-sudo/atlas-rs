@@ -7,6 +7,9 @@ import AgentDrafts from './AgentDrafts';
 import ApiTokens from './ApiTokens';
 import ExportImport from './ExportImport';
 import MarketplaceSettings from './MarketplaceSettings';
+import Modifiers from './Modifiers';
+import PriceTypes from './PriceTypes';
+import PrintTemplates from './PrintTemplates';
 import Profile from './Profile';
 import Roles from './Roles';
 import SettingsForms from './SettingsForms';
@@ -33,6 +36,9 @@ const SECTIONS: Section[] = [
   { id: 'organization', title: 'Настройки организации', perm: 'settings.edit' },
   { id: 'loyalty', title: 'Программа лояльности', perm: 'settings.edit' },
   { id: 'sales', title: 'Настройки продаж', perm: 'settings.edit' },
+  { id: 'price-types', title: 'Ценовые категории', perm: 'settings.edit' },
+  { id: 'modifiers', title: 'Модификаторы товаров', perm: 'settings.edit' },
+  { id: 'print-settings', title: 'Настройки печати', perm: 'settings.edit' },
   { id: 'marketplace', title: 'Настройки онлайн-каталога', perm: 'settings.edit' },
   { id: 'export-import', title: 'Экспорт и импорт', perm: 'settings.export_import' },
   { id: 'api-tokens', title: 'API-токены', perm: 'settings.edit' },
@@ -158,6 +164,9 @@ export default function Settings() {
   const def = SECTIONS.find((x) => x.id === section);
   if (!def || (def.perm && !s.can(def.perm))) return <Navigate to="/settings" replace />;
   if (section === 'users') return <Users />;
+  if (section === 'modifiers') return <Modifiers />;
+  if (section === 'print-settings') return <PrintTemplates />;
+  if (section === 'price-types') return <PriceTypes />;
   if (section === 'marketplace') return <MarketplaceSettings />;
   if (section === 'export-import') return <ExportImport />;
   if (section === 'api-tokens') return <ApiTokens />;

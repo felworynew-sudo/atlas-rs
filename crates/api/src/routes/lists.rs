@@ -14,8 +14,16 @@ use serde_json::{json, Value};
 use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
-pub const KINDS: [&str; 6] =
-    ["payment_methods", "purchase_methods", "discounts", "return_reasons", "writeoff_reasons", "spending_categories"];
+pub const KINDS: [&str; 8] = [
+    "payment_methods",
+    "purchase_methods",
+    "discounts",
+    "return_reasons",
+    "writeoff_reasons",
+    "spending_categories",
+    "product_modifiers",
+    "print_templates",
+];
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/{kind}", get(list).post(create)).route("/{kind}/{id}", get(one).put(update).delete(remove))
@@ -78,6 +86,31 @@ fn check_params(kind: &str, params: &Value) -> AppResult<Value> {
                 return Err(AppError::BadRequest("Некорректная скидка".into()));
             }
             Ok(json!({ "type": t, "value": v }))
+        }
+        // «Модификаторы товаров»: группа добавок (товары с ценой добавки) и доступность по филиалам
+        "product_modifiers" => {
+            let mut items = Vec::new();
+            for it in obj.get("items").and_then(Value::as_array).cloned().unwrap_or_default() {
+                let pid = it.get("productId").and_then(Value::as_str).and_then(|v| Uuid::parse_str(v).ok());
+                let price = it.get("price").and_then(Value::as_f64).filter(|p| p.is_finite() && *p >= 0.0);
+                let (Some(pid), Some(price)) = (pid, price) else {
+                    return Err(AppError::BadRequest("Некорректная добавка: нужен товар и цена не меньше нуля".into()));
+                };
+                let name = it.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                items.push(json!({ "productId": pid, "name": name, "price": price }));
+            }
+            let stores = obj.get("stores").and_then(Value::as_object).cloned().unwrap_or_default();
+            if !stores.values().all(Value::is_boolean) {
+                return Err(AppError::BadRequest("Некорректные настройки филиалов".into()));
+            }
+            Ok(json!({ "items": items, "stores": stores }))
+        }
+        // «Настройки печати»: шаблон накладной; поля хранятся как есть, но с ограничением размера
+        "print_templates" => {
+            if params.to_string().len() > 20_000 {
+                return Err(AppError::BadRequest("Шаблон слишком большой".into()));
+            }
+            Ok(Value::Object(obj))
         }
         _ => Ok(json!({})),
     }

@@ -6,6 +6,7 @@ import { Icon } from '../Icon';
 import { num, rub, round2 } from '../money';
 import { ProductPicker } from '../ProductPicker';
 import { useSession } from '../session';
+import { printInvoice, type PrintTemplate } from '../printInvoice';
 import { Header, Spinner, StoreChips, useLoad, useToast } from '../ui';
 
 interface Line { productId: string; name: string; qty: string; price: string }
@@ -19,6 +20,7 @@ export default function SupplyForm() {
   const nav = useNavigate();
   const [toast, say] = useToast();
   const sups = useLoad(() => api<Supplier[]>('/suppliers'), []);
+  const templates = useLoad(() => api<PrintTemplate[]>('/lists/print_templates'), []);
   const wallets = useLoad(() => api<Wallet[]>('/wallets'), []);
   const existing = useLoad(() => (isNew ? Promise.resolve(null) : api<Supply>(`/supplies/${id}`)), [id]);
 
@@ -114,6 +116,16 @@ export default function SupplyForm() {
               <tr><td colSpan={3}><b>Итого</b></td><td className="num"><b>{rub(d.total)}</b></td></tr>
             </tbody>
           </table>
+          {(templates.data ?? []).length > 0 && (
+            <div className="row" style={{ marginTop: 16, flexWrap: 'wrap' }}>
+              {(templates.data ?? []).filter((t) => !t.params.storeId || t.params.storeId === d.storeId).map((t) => (
+                <button key={t.id} className="btn light" onClick={() => {
+                  const ok = printInvoice(t.params, { number: d.id.slice(0, 8).toUpperCase(), date: d.supplyDate, supplier: (sups.data ?? []).find((x) => x.id === d.supplierId)?.name ?? '—', items: d.items, total: d.total });
+                  if (!ok) say('Разрешите всплывающие окна для печати');
+                }}>Печать: {t.name}</button>
+              ))}
+            </div>
+          )}
         </main>
         {toast}
       </>

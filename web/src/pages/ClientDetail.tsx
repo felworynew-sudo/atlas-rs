@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { api, type Client, type ListItem, type Purchase } from '../api';
+import { api, type PriceType, type Client, type ListItem, type Purchase } from '../api';
 import { fmtDateTime } from '../dates';
 import { Icon } from '../Icon';
 import { num, rub } from '../money';
@@ -16,15 +16,16 @@ export default function ClientDetail() {
   const [toast, say] = useToast();
   const client = useLoad(() => api<Client>(`/clients/${id}`), [id]);
   const discounts = useLoad(() => api<ListItem[]>('/lists/discounts'), []);
+  const priceTypes = useLoad(() => api<PriceType[]>('/price-types'), []);
   const loyalty = useLoad(() => api<Loyalty>('/loyalty-settings'), []);
   const history = useLoad(() => api<Purchase[]>(`/clients/${id}/purchase-history`), [id]);
-  const [f, setF] = useState({ name: '', phone: '', address: '', clientType: 'person', discountId: '', bonusLevel: '', comment: '' });
+  const [f, setF] = useState({ name: '', phone: '', address: '', clientType: 'person', discountId: '', priceTypeId: '', bonusLevel: '', comment: '' });
   const [error, setError] = useState<string | null>(null);
   const [bonus, setBonus] = useState<null | 'add' | 'sub'>(null);
 
   useEffect(() => {
     const c = client.data;
-    if (c) setF({ name: c.name, phone: c.phone, address: c.address, clientType: c.clientType, discountId: c.discountId ?? '', bonusLevel: c.bonusLevel === null ? '' : String(c.bonusLevel), comment: c.comment });
+    if (c) setF({ name: c.name, phone: c.phone, address: c.address, clientType: c.clientType, discountId: c.discountId ?? '', priceTypeId: c.preferredPriceTypeId ?? '', bonusLevel: c.bonusLevel === null ? '' : String(c.bonusLevel), comment: c.comment });
   }, [client.data]);
 
   if (client.loading && !client.data) return <><Header title="Клиент" /><Spinner /></>;
@@ -39,6 +40,7 @@ export default function ClientDetail() {
         method: 'PUT',
         body: { name: f.name, phone: f.phone, address: f.address, clientType: f.clientType, discountId: f.discountId || null, comment: f.comment, bonusLevel: f.bonusLevel === '' ? undefined : Number(f.bonusLevel.replace(',', '.')) },
       });
+      await api(`/price-types/client/${id}`, { method: 'PUT', body: { priceTypeId: f.priceTypeId || null } });
       say('Успешно');
       client.reload();
     } catch (e) {
@@ -73,6 +75,14 @@ export default function ClientDetail() {
             {(discounts.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
         </label>
+        {(priceTypes.data ?? []).length > 0 && (
+          <label className="field"><span>Тип цены клиента</span>
+            <select value={f.priceTypeId} onChange={(e) => setF({ ...f, priceTypeId: e.target.value })}>
+              <option value="">Базовая цена</option>
+              {(priceTypes.data ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </label>
+        )}
         {loyalty.data?.cashbackEnabled && (
           <label className="field"><span>Уровень бонусов, %</span>
             <input type="number" min="0" max="100" step="any" value={f.bonusLevel} placeholder={String(loyalty.data.defaultBonusLevel)} onChange={(e) => setF({ ...f, bonusLevel: e.target.value })} />

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type Category, type Client, type ListItem, type Product, type Sale, type SavedCart, type StockRow } from '../api';
+import { api, type PriceType, type Category, type Client, type ListItem, type Product, type Sale, type SavedCart, type StockRow } from '../api';
 import { Icon } from '../Icon';
 import { change, num, rub, saleTotals, type CartLine, type Discount } from '../money';
 import { useSession } from '../session';
@@ -23,7 +23,10 @@ export default function NewSale() {
   const discounts = useLoad(() => api<ListItem[]>('/lists/discounts'), []);
   const carts = useLoad(() => api<SavedCart[]>('/saved-carts', { query: { storeId } }), [storeId]);
 
-  const [lines, setLines] = useState<CartLine[]>([]);
+  const modifiers = useLoad(() => api<ListItem[]>('/lists/product_modifiers'), []);
+  const priceTypes = useLoad(() => api<PriceType[]>('/price-types'), []);
+  const [rawLines, setLines] = useState<CartLine[]>([]);
+  const [typeChoice, setTypeChoice] = useState<string>(''); // '' — авто, 'base' — базовая, иначе id типа цены
   const [search, setSearch] = useState('');
   const [cat, setCat] = useState<string>('all');
   const [catalogOpen, setCatalogOpen] = useState(false);
@@ -37,7 +40,7 @@ export default function NewSale() {
   const [secondId, setSecondId] = useState<string | null>(null);
   const [firstValue, setFirstValue] = useState('');
   const [received, setReceived] = useState('');
-  const [modal, setModal] = useState<null | 'discount' | 'custom' | 'carts'>(null);
+  const [modal, setModal] = useState<null | 'discount' | 'custom' | 'carts' | 'mods'>(null);
   const [custom, setCustom] = useState({ name: '', price: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,6 +50,21 @@ export default function NewSale() {
   const stockMap = useMemo(() => new Map((stock.data ?? []).map((r) => [r.productId, r])), [stock.data]);
   const purchase = (purchases.data ?? []).find((p) => p.id === (purchaseId ?? purchases.data?.[0]?.id));
   const payment = (payments.data ?? []).find((p) => p.id === (paymentId ?? payments.data?.[0]?.id));
+  const baseTotals = rawLines.reduce((a, l) => ({ qty: a.qty + l.qty, sum: a.sum + l.qty * l.price }), { qty: 0, sum: 0 });
+  const autoType = (priceTypes.data ?? []).find((t) => {
+    const r = t.rules;
+    const set = [r.minQty != null, r.minTotal != null, !!r.paymentMethodId, r.byClient === true].filter(Boolean).length;
+    if (set === 0) return false;
+    return (r.minQty == null || baseTotals.qty >= r.minQty) && (r.minTotal == null || baseTotals.sum >= r.minTotal)
+      && (!r.paymentMethodId || r.paymentMethodId === payment?.id) && (r.byClient !== true || client?.preferredPriceTypeId === t.id);
+  })?.id ?? client?.preferredPriceTypeId ?? null;
+  const effectiveType = typeChoice === 'base' ? null : typeChoice || autoType;
+  const typeMap = useLoad(
+    () => (effectiveType && storeId ? api<Record<string, number>>(`/price-types/${effectiveType}/effective`, { query: { storeId } }) : Promise.resolve(null)),
+    [effectiveType, storeId],
+  );
+  const lines = useMemo(() => rawLines.map((l) => (l.productId && typeMap.data && effectiveType && typeMap.data[l.productId] !== undefined ? { ...l, price: typeMap.data[l.productId] } : l)), [rawLines, typeMap.data, effectiveType]);
+  const mods = (modifiers.data ?? []).filter((m) => (m.params as { stores?: Record<string, boolean> }).stores?.[storeId] !== false);
   const markup = Number(purchase?.params.markupPercent ?? 0);
   const second = mixed ? (payments.data ?? []).find((p) => p.id === (secondId ?? (payments.data ?? []).find((x) => x.id !== payment?.id)?.id)) : undefined;
   const isCash = payment?.params.kind === 'cash' && !second;
@@ -109,6 +127,7 @@ export default function NewSale() {
           storeId,
           clientId: client?.id,
           paymentMethodId: payment?.id,
+          priceTypeId: effectiveType ?? undefined,
           secondPaymentMethodId: second?.id,
           firstPaymentValue: second ? first : undefined,
           secondPaymentValue: second ? secondValue : undefined,
@@ -190,6 +209,7 @@ export default function NewSale() {
         {s.moduleOn('simple_sales') && s.can('sale.new') && (
           <button className="chip small" onClick={() => setModal('carts')}>Открытые чеки ({carts.data?.length ?? 0})</button>
         )}
+        {mods.length > 0 && <button className="chip small" aria-label="Добавки" onClick={() => setModal('mods')}>+ Добавки</button>}
         {s.can('sale.apply_discount') && (
           <button className={`chip small${discount.type !== 'none' ? ' active' : ''}`} aria-label="Скидка" onClick={() => setModal('discount')}>%</button>
         )}
@@ -226,6 +246,15 @@ export default function NewSale() {
           <button key={p.id} className={`chip small${p.id === payment?.id ? ' active' : ''}`} onClick={() => setPaymentId(p.id)}>{p.name}</button>
         ))}
       </div>
+      {(priceTypes.data ?? []).length > 0 && (
+        <label className="field"><span>Тип цены</span>
+          <select value={typeChoice} onChange={(e) => setTypeChoice(e.target.value)}>
+            <option value="">Авто{effectiveType ? `: ${(priceTypes.data ?? []).find((t) => t.id === effectiveType)?.name ?? ''}` : ': базовая'}</option>
+            <option value="base">Базовая цена</option>
+            {(priceTypes.data ?? []).map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </label>
+      )}
       {(payments.data ?? []).length > 1 && (
         <label className="row" style={{ gap: 8, marginBottom: 8 }}>
           <input type="checkbox" checked={mixed} onChange={(e) => setMixed(e.target.checked)} style={{ width: 20, height: 20 }} />
@@ -298,6 +327,29 @@ export default function NewSale() {
         )}
       </main>
 
+      {modal === 'mods' && (
+        <Modal onClose={() => setModal(null)}>
+          <div className="h2" style={{ marginTop: 0 }}>Добавки</div>
+          {mods.map((m) => (
+            <div key={m.id}>
+              <div className="label">{m.name}</div>
+              {((m.params as { items?: { productId: string; name: string; price: number }[] }).items ?? []).map((i) => (
+                <div key={i.productId} className="card click row" onClick={() => {
+                  setLines((ls) => {
+                    const k = `mod-${i.productId}`;
+                    const at = ls.findIndex((l) => l.key === k);
+                    if (at >= 0) return ls.map((l, j) => (j === at ? { ...l, qty: l.qty + 1 } : l));
+                    return [...ls, { key: k, productId: i.productId, name: i.name, price: i.price, qty: 1 }];
+                  });
+                  setModal(null);
+                }}>
+                  <div className="grow title">{i.name}</div><span className="price">+{rub(i.price)}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </Modal>
+      )}
       {modal === 'discount' && (
         <Modal onClose={() => setModal(null)}>
           <div className="h2" style={{ marginTop: 0 }}>Скидка</div>

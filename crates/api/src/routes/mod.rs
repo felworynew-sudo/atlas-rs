@@ -11,6 +11,7 @@ pub mod lists;
 pub mod misc;
 pub mod organizations;
 pub mod orders;
+pub mod price_types;
 pub mod products;
 pub mod refs;
 pub mod reports;

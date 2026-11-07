@@ -234,6 +234,7 @@ export interface Client {
   address: string;
   clientType: 'person' | 'organization';
   discountId: string | null;
+  preferredPriceTypeId: string | null;
   comment: string;
   bonusBalance: number;
   bonusLevel: number | null;
@@ -368,3 +369,6 @@ export interface ClientOrder {
 
 export interface Transfer { id: string; fromStoreId: string; toStoreId: string; transferDate: string; comment: string; amount: number; items: { productId: string; name: string; qty: number }[] }
 export interface Manufacture { id: string; storeId: string; productId: string; productName: string; qty: number; batch: string; manufactureDate: string; costTotal: number; ingredients: { productId: string; name: string; qty: number }[] }
+
+export interface PriceTypeRules { minQty?: number | null; minTotal?: number | null; paymentMethodId?: string | null; byClient?: boolean }
+export interface PriceType { id: string; name: string; scope: 'store' | 'common'; autoCalc: boolean; markupPercent: number; rules: PriceTypeRules }

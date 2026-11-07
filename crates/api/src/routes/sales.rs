@@ -185,6 +185,7 @@ pub struct CreateSaleDto {
     pub store_id: Uuid,
     pub client_id: Option<Uuid>,
     pub items: Vec<ItemDto>,
+    pub price_type_id: Option<Uuid>,
     pub payment_method_id: Option<Uuid>,
     pub second_payment_method_id: Option<Uuid>,
     pub first_payment_value: Option<f64>,
@@ -258,6 +259,20 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
     check_store(&s.pool, &ctx, dto.store_id).await?;
 
     // при включённом модуле «Смена» продажа привязывается к открытой смене; без неё — только по праву
+    let price_type: Option<Uuid> = match dto.price_type_id {
+        Some(id) => {
+            let (n,): (i64,) = sqlx::query_as("SELECT count(*) FROM price_types WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL")
+                .bind(id)
+                .bind(ctx.org_id)
+                .fetch_one(&s.pool)
+                .await?;
+            if n == 0 {
+                return Err(AppError::BadRequest("Тип цены не найден".into()));
+            }
+            Some(id)
+        }
+        None => None,
+    };
     let shift_id: Option<Uuid> = if ctx.module_enabled(atlas_domain::modules::Module::Shifts) {
         let open: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM shifts WHERE store_id=$1 AND closed_at IS NULL")
             .bind(dto.store_id)
@@ -461,9 +476,9 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
         "INSERT INTO sales (id, organization_id, store_id, user_id, client_id, purchase_method_id, payment_method_id, \
          second_payment_method_id, first_payment_value, second_payment_value, subtotal, markup_amount, discount_amount, \
          discount_percentage, bonus_reduction, bonus_accumulation, total, cost_total, delivery, comment, idempotency_key, sale_date, \
-         punch_card_reduction, punch_delta, delivery_address, delivery_phone, delivery_price, order_id, import_batch_id, shift_id) \
+         punch_card_reduction, punch_delta, delivery_address, delivery_phone, delivery_price, order_id, import_batch_id, shift_id, price_type_id) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::float8,$10::float8,$11::float8,$12::float8,$13::float8,$14::float8,$15::float8,\
-         $16::float8,$17::float8,$18::float8,$19,$20,$21,COALESCE($22, now()),$23::float8,$24,$25,$26,$27::float8,$28,$29,$30)",
+         $16::float8,$17::float8,$18::float8,$19,$20,$21,COALESCE($22, now()),$23::float8,$24,$25,$26,$27::float8,$28,$29,$30,$31)",
     )
     .bind(sale_id)
     .bind(ctx.org_id)
@@ -495,6 +510,7 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
     .bind(dto.order_id)
     .bind(dto.import_batch_id)
     .bind(shift_id)
+    .bind(price_type)
     .execute(&mut *tx)
     .await?;
 

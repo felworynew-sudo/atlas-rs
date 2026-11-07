@@ -39,6 +39,7 @@ pub struct ClientView {
     pub address: String,
     pub client_type: String,
     pub discount_id: Option<Uuid>,
+    pub preferred_price_type_id: Option<Uuid>,
     pub comment: String,
     pub bonus_balance: f64,
     pub bonus_level: Option<f64>,
@@ -49,7 +50,7 @@ pub struct ClientView {
     pub created_at: DateTime<Utc>,
 }
 
-const SELECT_CLIENTS: &str = "SELECT c.id, c.name, c.phone, c.address, c.client_type, c.discount_id, c.comment, \
+const SELECT_CLIENTS: &str = "SELECT c.id, c.name, c.phone, c.address, c.client_type, c.discount_id, c.preferred_price_type_id, c.comment, \
      c.bonus_balance::float8 AS bonus_balance, c.bonus_level::float8 AS bonus_level, c.punch_punches AS punches, \
      (SELECT count(*) FROM sales s WHERE s.client_id = c.id AND s.deleted_at IS NULL) AS purchases, \
      (SELECT COALESCE(SUM(s.total - s.returned_amount),0) FROM sales s WHERE s.client_id = c.id AND s.deleted_at IS NULL)::float8 AS purchases_sum, \
