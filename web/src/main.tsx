@@ -4,6 +4,9 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App';
 import { SessionProvider } from './session';
 import './styles.css';
+import { applyTheme, savedTheme } from './pages/Appearance';
+
+applyTheme(savedTheme());
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

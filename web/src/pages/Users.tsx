@@ -79,6 +79,7 @@ function UserModal({ user, roles, onClose, onSaved }: { user: StaffUser | null; 
       <label className="field"><span>Имя</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
       <label className="field"><span>Email</span><input type="email" value={email} readOnly={!!user} style={user ? { opacity: 0.6 } : undefined} onChange={(e) => setEmail(e.target.value)} /></label>
       <label className="field"><span>{user ? 'Новый пароль (необязательно)' : 'Пароль'}</span><input type="password" value={password} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} /></label>
+      <div className="sub" style={{ marginTop: -8, marginBottom: 12 }}>Английскими буквами без пробелов, не короче 6 символов</div>
       <label className="field"><span>Роль</span>
         <select value={roleId} onChange={(e) => setRoleId(e.target.value)}>
           {roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -94,7 +95,7 @@ function UserModal({ user, roles, onClose, onSaved }: { user: StaffUser | null; 
         ))}
       </div>
       {error && <div className="error" role="alert">{error}</div>}
-      <button className="btn" disabled={!name.trim() || (!user && (!email || password.length < 6))} onClick={save}>Сохранить</button>
+      <button className="btn" disabled={!name.trim() || (!user && (!email || password.length < 6)) || (password !== '' && (password.length < 6 || !/^[!-~]+$/.test(password)))} onClick={save}>Сохранить</button>
       {user && user.id !== s.user?.id && (
         <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
           <button className="btn danger" onClick={() => setActive(false)}>Деактивировать</button>

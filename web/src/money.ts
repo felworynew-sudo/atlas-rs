@@ -4,7 +4,17 @@ const fmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 // «-0» (отрицательный ноль после округления) показываем как «0»
 const clean = (v: number): number => (Math.abs(v) < 0.005 ? 0 : v);
 
-export const rub = (v: number): string => `${fmt.format(clean(v))} ₽`;
+// Валюта и число знаков организации (Настройки организации); по умолчанию рубли, до 2 знаков.
+const SYMBOLS: Record<string, string> = { RUB: '₽', KZT: '₸', UAH: '₴', BYN: 'Br', USD: '$', EUR: '€', UZS: 'soʻm', KGS: 'с', GEL: '₾', AMD: '֏' };
+let symbol = '₽';
+export const CURRENCIES = Object.keys(SYMBOLS);
+export function setCurrency(code: string, decimals: number): void {
+  symbol = SYMBOLS[code] ?? code;
+  fmtMoney = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: Math.min(Math.max(decimals, 0), 4) });
+}
+let fmtMoney = fmt;
+
+export const rub = (v: number): string => `${fmtMoney.format(clean(v))} ${symbol}`;
 export const num = (v: number): string => fmt.format(clean(v));
 export const round2 = (x: number): number => Math.round(x * 100) / 100;
 

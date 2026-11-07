@@ -88,7 +88,7 @@ export interface UserView {
   permissions: string[];
   storeIds: string[];
 }
-export interface Org { id: string; name: string; modules: Record<string, boolean> }
+export interface Org { id: string; name: string; currency?: string; priceDecimals?: number; modules: Record<string, boolean> }
 export interface Store { id: string; name: string; address: string; timezone: string }
 export interface ListItem { id: string; name: string; params: Record<string, unknown>; sortOrder: number }
 export interface Category { id: string; name: string; sortOrder: number }

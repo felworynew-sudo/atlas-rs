@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, type ListItem, type Org, type Wallet } from '../api';
+import { CURRENCIES } from '../money';
 import { useSession } from '../session';
 import { Header, Spinner, useLoad, useToast } from '../ui';
 import { MODULE_TITLES } from './Roles';
@@ -17,12 +18,14 @@ function Organization() {
   const [toast, say] = useToast();
   const [name, setName] = useState(s.org?.name ?? '');
   const [modules, setModules] = useState<Record<string, boolean>>(s.org?.modules ?? {});
+  const [currency, setCur] = useState(s.org?.currency ?? 'RUB');
+  const [decimals, setDec] = useState(String(s.org?.priceDecimals ?? 2));
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
     setError(null);
     try {
-      await api<Org>(`/organizations/${s.org?.id}`, { method: 'PUT', body: { name, modules } });
+      await api<Org>(`/organizations/${s.org?.id}`, { method: 'PUT', body: { name, modules, currency, priceDecimals: Number(decimals) } });
       await s.reload();
       say('Успешно');
     } catch (e) {
@@ -35,6 +38,12 @@ function Organization() {
       <Header title="Настройки организации" />
       <main className="page">
         <label className="field"><span>Название</span><input type="text" value={name} onChange={(e) => setName(e.target.value)} /></label>
+        <label className="field"><span>Валюта</span>
+          <select value={currency} onChange={(e) => setCur(e.target.value)}>{CURRENCIES.map((c) => <option key={c}>{c}</option>)}</select>
+        </label>
+        <label className="field"><span>Знаков после запятой в ценах</span>
+          <select value={decimals} onChange={(e) => setDec(e.target.value)}>{[0, 1, 2, 3, 4].map((n) => <option key={n}>{n}</option>)}</select>
+        </label>
         <div className="h2" style={{ fontSize: 18 }}>Используемые модули</div>
         {Object.entries(MODULE_TITLES).map(([key, title]) => (
           <label key={key} className="row" style={{ marginBottom: 12 }}>

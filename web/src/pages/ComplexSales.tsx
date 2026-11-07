@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type ComplexSale, type ComplexTemplate } from '../api';
+import { api, type ComplexSale, type ComplexTemplate, type Sale } from '../api';
 import { COMPLEX_STATUSES, daysAgoLocal, endOfDay, fmtDate, startOfDay, todayLocal } from '../dates';
 import { Icon } from '../Icon';
 import { rub } from '../money';
@@ -17,6 +17,11 @@ export default function ComplexSales() {
   const [to, setTo] = useState(todayLocal());
   const [activeOnly, setActiveOnly] = useState(true);
   const [tpl, setTpl] = useState(false);
+  const [withSimple, setWithSimple] = useState(false);
+  const simple = useLoad(
+    () => (withSimple ? api<Sale[]>('/sales', { query: { storeId: store === 'all' ? undefined : store, from: startOfDay(from), to: endOfDay(to) } }) : Promise.resolve([] as Sale[])),
+    [withSimple, store, from, to],
+  );
   const list = useLoad(
     () => api<ComplexSale[]>('/complex-sales', { query: { storeId: store === 'all' ? undefined : store, from: startOfDay(from), to: endOfDay(to), activeOnly: activeOnly ? 'true' : undefined } }),
     [store, from, to, activeOnly],
@@ -41,9 +46,21 @@ export default function ComplexSales() {
           <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} style={{ width: 20, height: 20 }} />
           <span>Только активные</span>
         </label>
+        <label className="row" style={{ marginBottom: 12, gap: 8 }}>
+          <input type="checkbox" checked={withSimple} onChange={(e) => setWithSimple(e.target.checked)} style={{ width: 20, height: 20 }} />
+          <span>Включить простые продажи</span>
+        </label>
         {list.loading && <Spinner />}
         {list.error && <div className="error">{list.error}</div>}
-        {!list.loading && data.length === 0 && <div className="empty">Ничего не найдено</div>}
+        {!list.loading && data.length === 0 && !(withSimple && (simple.data ?? []).length > 0) && <div className="empty">Ничего не найдено</div>}
+        {withSimple && (simple.data ?? []).map((x) => (
+          <div key={`s-${x.id}`} className="card click" onClick={() => nav(`/sale/${x.id}`)}>
+            <div className="row">
+              <div className="grow"><div className="title">Простая продажа</div><div className="sub">{fmtDate(x.saleDate)} · {x.userName}</div></div>
+              <span className="price">{rub(x.total)}</span>
+            </div>
+          </div>
+        ))}
         {data.map((x) => (
           <div key={x.id} className="card click" onClick={() => nav(`/complex-sale/${x.id}`)}>
             <div className="row">

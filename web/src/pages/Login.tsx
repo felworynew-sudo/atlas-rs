@@ -8,6 +8,7 @@ export default function Login() {
   const [f, setF] = useState({ email: '', password: '', name: '', organizationName: '', storeName: '' });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
   const [signupOn, setSignupOn] = useState(false);
   useEffect(() => {
     api<{ signupEnabled: boolean }>('/auth/config').then((c) => setSignupOn(c.signupEnabled)).catch(() => undefined);
@@ -39,7 +40,8 @@ export default function Login() {
         </>
       )}
       <label className="field"><span>Email</span><input type="email" value={f.email} onChange={set('email')} autoComplete="email" /></label>
-      <label className="field"><span>Пароль</span><input type="password" value={f.password} onChange={set('password')} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>
+      <label className="field"><span>Пароль</span><input type={show ? 'text' : 'password'} value={f.password} onChange={set('password')} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} /></label>
+      <label className="row" style={{ gap: 8, marginBottom: 12 }}><input type="checkbox" checked={show} style={{ width: 18, height: 18 }} onChange={(e) => setShow(e.target.checked)} /><span className="sub" style={{ marginTop: 0 }}>Показать пароль</span></label>
       {error && <div className="error" role="alert">{error}</div>}
       <button className="btn" disabled={busy}>{mode === 'login' ? 'Войти' : 'Создать'}</button>
       {(signupOn || mode === 'signup') && <p style={{ textAlign: 'center', marginTop: 20 }}>

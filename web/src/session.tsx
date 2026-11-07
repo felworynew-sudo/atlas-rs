@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { setCurrency } from './money';
 import { api, getToken, setToken, type Org, type Store, type UserView } from './api';
 
 interface Session {
@@ -37,6 +38,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const load = useCallback(async () => {
     const [me, o, st] = await Promise.all([api<UserView>('/auth/me'), api<Org>('/organizations'), api<Store[]>('/stores')]);
     const mine = st.filter((s) => me.roleKey === 'admin' || me.permissions.includes('settings.other_stores') || me.storeIds.includes(s.id));
+    setCurrency(o.currency ?? 'RUB', o.priceDecimals ?? 2);
     setUser(me);
     setOrg(o);
     setStores(mine);

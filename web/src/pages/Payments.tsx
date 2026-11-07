@@ -18,7 +18,8 @@ export default function Payments() {
   const [from, setFrom] = useState(daysAgoLocal(30));
   const [to, setTo] = useState(todayLocal());
   const [form, setForm] = useState(false);
-  const list = useLoad(() => api<Payment[]>('/payments', { query: { storeId: store === 'all' ? undefined : store, from, to } }), [store, from, to]);
+  const [by, setBy] = useState<'created' | 'period'>('created');
+  const list = useLoad(() => api<Payment[]>('/payments', { query: { storeId: store === 'all' ? undefined : store, from, to, by } }), [store, from, to, by]);
   const report = useLoad(() => (tab === 'report' ? api<MoneyReport>('/payments/report', { query: { from: startOfDay(from), to: endOfDay(to) } }) : Promise.resolve(null)), [tab, from, to]);
   const wallets = useLoad(() => api<Wallet[]>('/wallets'), []);
   const total = (list.data ?? []).reduce((a, x) => a + x.amount, 0);
@@ -44,6 +45,10 @@ export default function Payments() {
         <DateRange from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b); }} />
         {tab === 'list' && (
           <>
+            <div className="chips">
+              <button className={`chip small${by === 'created' ? ' active' : ''}`} onClick={() => setBy('created')}>По дате создания</button>
+              <button className={`chip small${by === 'period' ? ' active' : ''}`} onClick={() => setBy('period')}>По периоду оплаты</button>
+            </div>
             <StoreChips all stores={s.stores} value={store} onChange={setStore} />
             {list.loading && <Spinner />}
             {list.error && <div className="error">{list.error}</div>}

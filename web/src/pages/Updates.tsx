@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import { fmtDateTime } from '../dates';
+import { daysAgoLocal, endOfDay, fmtDateTime, startOfDay, todayLocal } from '../dates';
 import { useSession } from '../session';
-import { Header, Spinner, StoreChips, useLoad } from '../ui';
+import { DateRange, Header, Spinner, StoreChips, useLoad } from '../ui';
 
 interface Ev { id: string; storeId: string | null; author: string | null; kind: string; text: string; createdAt: string; unread: boolean }
 
@@ -10,7 +10,9 @@ interface Ev { id: string; storeId: string | null; author: string | null; kind: 
 export default function Updates() {
   const s = useSession();
   const [store, setStore] = useState('all');
-  const list = useLoad(() => api<Ev[]>('/updates', { query: { storeId: store === 'all' ? undefined : store } }), [store]);
+  const [from, setFrom] = useState(daysAgoLocal(30));
+  const [to, setTo] = useState(todayLocal());
+  const list = useLoad(() => api<Ev[]>('/updates', { query: { storeId: store === 'all' ? undefined : store, from: startOfDay(from), to: endOfDay(to) } }), [store, from, to]);
   useEffect(() => {
     if (list.data && list.data.some((e) => e.unread)) void api('/updates/read', { method: 'POST' }).catch(() => undefined);
   }, [list.data]);
@@ -19,7 +21,9 @@ export default function Updates() {
     <>
       <Header title="Обновления" />
       <main className="page">
+        <DateRange from={from} to={to} onChange={(a, b) => { setFrom(a); setTo(b); }} />
         <StoreChips all stores={s.stores} value={store} onChange={setStore} />
+        <button className="link" onClick={list.reload}>Обновить</button>
         {list.loading && <Spinner />}
         {list.error && <div className="error">{list.error}</div>}
         {!list.loading && (list.data ?? []).length === 0 && <div className="empty">Обновлений пока нет</div>}

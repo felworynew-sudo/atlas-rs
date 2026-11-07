@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { api, type PermissionDef, type Role } from '../api';
 import { Icon } from '../Icon';
 import { rub } from '../money';
+import { useSession } from '../session';
 import { Header, Modal, Spinner, useLoad, useToast } from '../ui';
 
 export const MODULE_TITLES: Record<string, string> = {
@@ -53,6 +54,7 @@ export default function Roles() {
 }
 
 function RoleModal({ role, perms, onClose, onSaved }: { role: Role | null; perms: PermissionDef[]; onClose: () => void; onSaved: () => void }) {
+  const sess = useSession();
   const isAdmin = role?.key === 'admin';
   const [name, setName] = useState(role?.name ?? '');
   const [salaryType, setSalaryType] = useState<string>(role?.salaryType ?? 'none');
@@ -65,11 +67,13 @@ function RoleModal({ role, perms, onClose, onSaved }: { role: Role | null; perms
   const groups = useMemo(() => {
     const m = new Map<string, PermissionDef[]>();
     for (const p of perms) {
+      if (p.module && !sess.moduleOn(p.module)) continue; // права выключенных модулей не показываем
       const g = p.module ? MODULE_TITLES[p.module] ?? p.module : 'Основные';
       m.set(g, [...(m.get(g) ?? []), p]);
     }
     return [...m.entries()];
-  }, [perms]);
+  }, [perms, sess]);
+  const visibleKeys = groups.flatMap(([, l]) => l.map((p) => p.key));
 
   const toggle = (key: string) => setSelected((cur) => { const n = new Set(cur); if (n.has(key)) n.delete(key); else n.add(key); return n; });
 
@@ -117,6 +121,12 @@ function RoleModal({ role, perms, onClose, onSaved }: { role: Role | null; perms
 
       <div className="h2" style={{ fontSize: 18 }}>Права</div>
       {isAdmin && <div className="muted" style={{ marginBottom: 12 }}>У роли «Админ» все права, изменить их нельзя.</div>}
+      {!isAdmin && (
+        <div className="row" style={{ gap: 16, marginBottom: 8 }}>
+          <button type="button" className="link" onClick={() => setSelected((cur) => new Set([...cur, ...visibleKeys]))}>Выбрать все</button>
+          <button type="button" className="link" onClick={() => setSelected((cur) => new Set([...cur].filter((k) => !visibleKeys.includes(k))))}>Очистить</button>
+        </div>
+      )}
       {groups.map(([group, list]) => (
         <section key={group} style={{ marginBottom: 14 }}>
           <div className="day" style={{ marginTop: 8 }}>{group}</div>

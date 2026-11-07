@@ -4,6 +4,7 @@ import { rub } from '../money';
 import { useSession } from '../session';
 import { Header } from '../ui';
 import AgentDrafts from './AgentDrafts';
+import Appearance from './Appearance';
 import ApiTokens from './ApiTokens';
 import ExportImport from './ExportImport';
 import MarketplaceSettings from './MarketplaceSettings';
@@ -44,6 +45,7 @@ const SECTIONS: Section[] = [
   { id: 'api-tokens', title: 'API-токены', perm: 'settings.edit' },
   { id: 'agent-drafts', title: 'Черновики от ИИ-агента', perm: 'settings.edit' },
   { id: 'profile', title: 'Профиль', perm: '' },
+  { id: 'appearance', title: 'Внешний вид', perm: '' },
 ];
 
 const opt = (value: string, label: string) => ({ value, label });
@@ -181,6 +183,7 @@ export default function Settings() {
   if (section === 'api-tokens') return <ApiTokens />;
   if (section === 'agent-drafts') return <AgentDrafts />;
   if (section === 'profile') return <Profile />;
+  if (section === 'appearance') return <Appearance />;
   if (section === 'roles') return <Roles />;
   if (section === 'organization' || section === 'loyalty' || section === 'sales') return <SettingsForms kind={section} />;
   const cfg = configs(s.stores, s.can)[section];
