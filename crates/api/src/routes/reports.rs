@@ -424,6 +424,43 @@ async fn profit_report(State(s): State<AppState>, ctx: AuthContext, Query(q): Qu
     .fetch_one(&s.pool)
     .await?;
 
+    // справочные строки: перемещения (приход минус уход относительно выбранных филиалов) и стоимость остатков на начало и конец периода
+    let (transfers,): (f64,) = sqlx::query_as(
+        "SELECT COALESCE(SUM(CASE WHEN to_store_id = ANY($2) AND NOT from_store_id = ANY($2) THEN amount \
+                                  WHEN from_store_id = ANY($2) AND NOT to_store_id = ANY($2) THEN -amount ELSE 0 END),0)::float8 \
+         FROM transfers WHERE organization_id=$1 AND deleted_at IS NULL AND transfer_date >= $3 AND transfer_date < $4",
+    )
+    .bind(org)
+    .bind(&sc.stores)
+    .bind(sc.from)
+    .bind(sc.to)
+    .fetch_one(&s.pool)
+    .await?;
+    let costs = crate::routes::products::cost_nodes(&s.pool, org).await?;
+    let stock_value = |at: DateTime<Utc>| {
+        let pool = s.pool.clone();
+        let stores = sc.stores.clone();
+        async move {
+            let rows: Vec<(Uuid, f64)> = sqlx::query_as(
+                "SELECT product_id, SUM(delta)::float8 FROM product_movements WHERE organization_id=$1 AND store_id = ANY($2) AND created_at < $3 \
+                 GROUP BY product_id HAVING SUM(delta) > 0",
+            )
+            .bind(org)
+            .bind(&stores)
+            .bind(at)
+            .fetch_all(&pool)
+            .await?;
+            Ok::<_, AppError>(rows)
+        }
+    };
+    let start_rows = stock_value(sc.from).await?;
+    let end_rows = stock_value(sc.to).await?;
+    let value_of = |rows: &[(Uuid, f64)]| -> f64 { rows.iter().map(|(pid, qty)| qty * atlas_domain::catalog::unit_cost(&costs, *pid)).sum() };
+    let stock_start = value_of(&start_rows);
+    let stock_end = value_of(&end_rows);
+    // остатки с неизвестной закупочной ценой делают оценку стоимости неполной
+    let unknown_stock = end_rows.iter().filter(|(pid, _)| atlas_domain::catalog::unit_cost(&costs, *pid) <= 0.0).count();
+
     let by_category: Vec<(Option<String>, f64)> = sqlx::query_as(
         "SELECT c.name, SUM(sp.amount)::float8 FROM spendings sp LEFT JOIN list_items c ON c.id = sp.category_id \
          WHERE sp.organization_id=$1 AND sp.deleted_at IS NULL AND sp.kind='operating' AND sp.store_id = ANY($2) \
@@ -509,6 +546,13 @@ async fn profit_report(State(s): State<AppState>, ctx: AuthContext, Query(q): Qu
         line("Операционная прибыль", res.operating_profit);
         line("Капитальные вложения", capital);
         line("Чистая прибыль", res.net_profit);
+        line("Зарплаты", salaries);
+        line("Разница в закрытиях смен", shift_diff);
+        line("Приемки (справочно)", supplies);
+        line("Перемещения (справочно)", transfers);
+        line("Стоимость товаров на начало", stock_start);
+        line("Стоимость товаров на конец", stock_end);
+        line("Разница в стоимости", stock_end - stock_start);
         return Ok(csv_response("profit-report", out));
     }
     Ok(Json(json!({
@@ -529,6 +573,11 @@ async fn profit_report(State(s): State<AppState>, ctx: AuthContext, Query(q): Qu
         "capitalExpenses": round2(capital),
         "netProfit": res.net_profit,
         "supplies": round2(supplies),
+        "transfers": round2(transfers),
+        "stockValueStart": round2(stock_start),
+        "stockValueEnd": round2(stock_end),
+        "stockValueDiff": round2(stock_end - stock_start),
+        "unknownStockItems": unknown_stock,
         "checks": rows.len(),
     }))
     .into_response())

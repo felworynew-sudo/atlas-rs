@@ -47,6 +47,13 @@ export default function ProfitStats() {
 
             <div className="day">Справочно</div>
             <Line label="Приемки" value={rub(p.supplies)} />
+            <Line label="Перемещения" value={rub(p.transfers)} />
+            <Line label="Стоимость товаров на начало" value={rub(p.stockValueStart)} />
+            <Line label="Стоимость товаров на конец" value={rub(p.stockValueEnd)} />
+            <Line label="Разница в стоимости" value={rub(p.stockValueDiff)} tone={p.stockValueDiff < 0 ? 'bad' : undefined} />
+            {p.unknownStockItems > 0 && (
+              <div className="sub" style={{ marginTop: 8 }}>Остатки неизвестны по {p.unknownStockItems} позициям: у них нет закупочной цены, поэтому стоимость товаров неполная.</div>
+            )}
             <Line label="Чеков" value={String(p.checks)} />
           </div>
         )}

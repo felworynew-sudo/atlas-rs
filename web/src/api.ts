@@ -207,6 +207,11 @@ export interface ProfitReport {
   capitalExpenses: number;
   netProfit: number;
   supplies: number;
+  transfers: number;
+  stockValueStart: number;
+  stockValueEnd: number;
+  stockValueDiff: number;
+  unknownStockItems: number;
   checks: number;
 }
 export interface ProductAgg {
