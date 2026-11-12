@@ -4,6 +4,7 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
+rust_xlsxwriter = "0.102"
 argon2 = "0.6.0"
 atlas-domain = { path = "../domain" }
 axum = "0.8.9"

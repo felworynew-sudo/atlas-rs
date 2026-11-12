@@ -58,7 +58,7 @@ export default function ExportImport() {
     }
   }
 
-  const exp = (path: string, name: string) => downloadCsv(path, { storeId: store }, name).catch((e: unknown) => say(e instanceof Error ? e.message : 'Ошибка'));
+  const exp = (path: string, name: string) => downloadCsv(path, { storeId: store }, name, name.endsWith('.xlsx') ? 'xlsx' : 'csv').catch((e: unknown) => say(e instanceof Error ? e.message : 'Ошибка'));
 
   return (
     <>
@@ -69,6 +69,8 @@ export default function ExportImport() {
         <div className="row" style={{ marginBottom: 16 }}>
           <button className="btn light" onClick={() => exp('/export/products', 'products.csv')}>Товары (CSV)</button>
           <button className="btn light" onClick={() => exp('/export/clients', 'clients.csv')}>Клиенты (CSV)</button>
+          <button className="btn light" onClick={() => exp('/export/products', 'products.xlsx')}>Товары (Excel)</button>
+          <button className="btn light" onClick={() => exp('/export/clients', 'clients.xlsx')}>Клиенты (Excel)</button>
         </div>
 
         <div className="h2">Импорт</div>

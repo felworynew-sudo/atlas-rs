@@ -117,6 +117,49 @@ async fn scope(pool: &PgPool, ctx: &AuthContext, q: &ReportQuery) -> AppResult<S
     Ok(Scope { stores, from, to, from_day, to_day })
 }
 
+/// Таблица отчёта в нужном формате: `xlsx` — книга Excel (числа записываются числами), иначе CSV.
+pub fn table_response(name: &str, rows: Vec<Vec<String>>, format: Option<&str>) -> Response {
+    if format == Some("xlsx") {
+        if let Some(r) = xlsx_response(name, &rows) {
+            return r;
+        }
+    }
+    csv_response(name, rows)
+}
+
+fn xlsx_response(name: &str, rows: &[Vec<String>]) -> Option<Response> {
+    use rust_xlsxwriter::{Format, Workbook};
+    let mut book = Workbook::new();
+    let sheet = book.add_worksheet();
+    let bold = Format::new().set_bold();
+    for (r, row) in rows.iter().enumerate() {
+        for (c, cell) in row.iter().enumerate() {
+            let (r, c) = (r as u32, c as u16);
+            let done = if r == 0 {
+                sheet.write_string_with_format(r, c, cell, &bold).map(|_| ())
+            } else if let Some(v) = cell.trim().parse::<f64>().ok().filter(|v| v.is_finite() && !cell.trim().is_empty() && !cell.starts_with('+')) {
+                sheet.write_number(r, c, v).map(|_| ())
+            } else {
+                sheet.write_string(r, c, cell).map(|_| ())
+            };
+            done.ok()?;
+        }
+    }
+    sheet.autofit();
+    let bytes = book.save_to_buffer().ok()?;
+    Some(
+        (
+            StatusCode::OK,
+            [
+                (header::CONTENT_TYPE, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".to_string()),
+                (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}.xlsx\"")),
+            ],
+            bytes,
+        )
+            .into_response(),
+    )
+}
+
 pub fn csv_response(name: &str, rows: Vec<Vec<String>>) -> Response {
     let esc = |f: &str| {
         if f.contains([',', '"', '\n', ';']) {
@@ -146,7 +189,7 @@ fn n(v: f64) -> String {
 }
 
 fn wants_csv(q: &ReportQuery) -> bool {
-    q.format.as_deref() == Some("csv")
+    matches!(q.format.as_deref(), Some("csv" | "xlsx"))
 }
 
 // ---------- общие выборки ----------
@@ -314,7 +357,7 @@ async fn sales_report(State(s): State<AppState>, ctx: AuthContext, Query(q): Que
         for (d, (sum, c)) in &days {
             out.push(vec![d.to_string(), n(*sum), c.to_string()]);
         }
-        return Ok(csv_response("sales-report", out));
+        return Ok(table_response("sales-report", out, q.format.as_deref()));
     }
     Ok(Json(json!({
         "totals": {
@@ -553,7 +596,7 @@ async fn profit_report(State(s): State<AppState>, ctx: AuthContext, Query(q): Qu
         line("Стоимость товаров на начало", stock_start);
         line("Стоимость товаров на конец", stock_end);
         line("Разница в стоимости", stock_end - stock_start);
-        return Ok(csv_response("profit-report", out));
+        return Ok(table_response("profit-report", out, q.format.as_deref()));
     }
     Ok(Json(json!({
         "sales": round2(sales),
@@ -724,7 +767,7 @@ async fn products_report(State(s): State<AppState>, ctx: AuthContext, Query(q): 
                 n(a.writeoff_qty), n(a.writeoff_sum), n(a.supply_qty), n(a.supply_sum),
             ]);
         }
-        return Ok(csv_response("products-report", out));
+        return Ok(table_response("products-report", out, q.format.as_deref()));
     }
     Ok(Json(json!({
         "byCategory": cat_rows.iter().map(|(name, id, a)| a.json(json!(id), name)).collect::<Vec<_>>(),
@@ -763,7 +806,7 @@ async fn revisions_report(State(s): State<AppState>, ctx: AuthContext, Query(q):
         for r in &rows {
             out.push(vec![r.0.clone(), n(r.1), n(r.2), n(r.3), n(r.4)]);
         }
-        return Ok(csv_response("revisions-report", out));
+        return Ok(table_response("revisions-report", out, q.format.as_deref()));
     }
     Ok(Json(json!({
         "minus": round2(minus_sum), "plus": round2(plus_sum), "balance": round2(minus_sum + plus_sum),

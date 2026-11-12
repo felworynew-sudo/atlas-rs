@@ -64,9 +64,9 @@ function safeJson(text: string): unknown {
 }
 
 /** Скачивание CSV-отчёта: запрос с токеном и сохранение файла из ответа. */
-export async function downloadCsv(path: string, query: Query, filename: string): Promise<void> {
+export async function downloadCsv(path: string, query: Query, filename: string, format: 'csv' | 'xlsx' = 'csv'): Promise<void> {
   const token = getToken();
-  const res = await fetch(buildUrl(path, { ...query, format: 'csv' }), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+  const res = await fetch(buildUrl(path, { ...query, format }), { headers: token ? { Authorization: `Bearer ${token}` } : {} });
   if (!res.ok) throw new ApiError(res.status, `Ошибка ${res.status}`);
   const url = URL.createObjectURL(await res.blob());
   const a = document.createElement('a');

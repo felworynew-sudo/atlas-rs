@@ -5,7 +5,7 @@ use crate::{
     error::{AppError, AppResult},
     ledger,
     routes::{
-        reports::csv_response,
+        reports::table_response,
         sales::{self, check_store, CreateSaleDto, ItemDto},
     },
     AppState,
@@ -513,10 +513,10 @@ async fn export_products(State(s): State<AppState>, ctx: AuthContext, Query(q): 
     for r in rows {
         out.push(vec![r.0, n2(r.1), n2(r.2), r.3.first().cloned().unwrap_or_default(), r.4.unwrap_or_default(), r.5.unwrap_or_default(), n2(r.6)]);
     }
-    Ok(csv_response("products", out))
+    Ok(table_response("products", out, q.format.as_deref()))
 }
 
-async fn export_clients(State(s): State<AppState>, ctx: AuthContext) -> AppResult<Response> {
+async fn export_clients(State(s): State<AppState>, ctx: AuthContext, Query(q): Query<ExportQuery>) -> AppResult<Response> {
     ctx.require("settings.export_import")?;
     ctx.require("client.card")?;
     let rows: Vec<(String, String, String, f64, i64, f64)> = sqlx::query_as(
@@ -532,7 +532,7 @@ async fn export_clients(State(s): State<AppState>, ctx: AuthContext) -> AppResul
     for r in rows {
         out.push(vec![r.0, r.1, r.2, n2(r.3), r.4.to_string(), n2(r.5)]);
     }
-    Ok(csv_response("clients", out))
+    Ok(table_response("clients", out, q.format.as_deref()))
 }
 
 // =========================== производство ===========================

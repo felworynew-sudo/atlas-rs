@@ -26,6 +26,7 @@ export function CsvButton({ path, query, file }: { path: string; query: Record<s
   return (
     <>
       <button className="link" onClick={() => downloadCsv(path, query, file).catch((e: unknown) => say(e instanceof Error ? e.message : 'Ошибка'))}>Экспорт в CSV</button>
+      <button className="link" onClick={() => downloadCsv(path, query, file.replace(/\.csv$/, '.xlsx'), 'xlsx').catch((e: unknown) => say(e instanceof Error ? e.message : 'Ошибка'))}>Экспорт в Excel</button>
       {toast}
     </>
   );
