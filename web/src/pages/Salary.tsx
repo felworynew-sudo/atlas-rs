@@ -116,6 +116,8 @@ function Detail({ userId, q, onClose }: { userId: string; q: Record<string, stri
           <div className="h2" style={{ marginTop: 0 }}>{x.name}</div>
           <Line label="Роль" value={x.roleName} />
           <Line label="Тип зарплаты" value={`${TYPES[x.salaryType] ?? x.salaryType}${x.salaryType !== 'none' ? ` · ${rub(x.rate)}` : ''}`} />
+          <Line label="Тип бонусов" value={x.bonusType === 'percent_own_sales' ? `${num(x.bonusRate)}% от своих продаж` : 'Нет'} />
+          <Line label="Бонус за период" value={rub(x.bonus)} />
           <Line label="Часы работы в текущем периоде" value={num(x.hours)} />
           <Line label="Начислено за период" value={rub(x.accrued)} />
           <Line label="Выплачено за период" value={rub(x.paid)} />

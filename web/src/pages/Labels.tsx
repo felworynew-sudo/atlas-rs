@@ -9,7 +9,7 @@ import { todayLocal } from '../dates';
 
 interface Settings { labelHeight?: number; fontSize?: number; priceFontSize?: number; printDate?: boolean }
 interface Rendered { settings: Settings; labels: { productId: string; name: string; price: number; barcode: string | null; copies: number; date: string | null }[] }
-interface Line { productId: string; name: string; copies: string }
+interface Line { productId: string; name: string; copies: string; price?: number }
 
 /** Печать этикеток: выбор товаров и числа копий, настройки макета, печать из браузера. */
 export default function Labels() {
@@ -72,6 +72,18 @@ export default function Labels() {
         <label className="field"><span>Дата на этикетке</span><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
         <button className="btn" disabled={lines.length === 0 || lines.some((l) => !(Number(l.copies) >= 1))} onClick={print}>Печать</button>
 
+        <div className="h2">Предпросмотр</div>
+        {(() => {
+          const l = lines[0];
+          const mm = 3.78; // px на мм при 96 dpi
+          return (
+            <div style={{ background: '#fff', color: '#000', borderRadius: 6, width: 200 * 1, height: Math.min(Math.max((cfg.labelHeight ?? 40) * mm, 60), 300), padding: 8, overflow: 'hidden', boxSizing: 'border-box', marginBottom: 12 }}>
+              <div style={{ fontSize: cfg.fontSize ?? 12 }}>{l?.name ?? 'Название товара'}</div>
+              <div style={{ fontSize: cfg.priceFontSize ?? 18, fontWeight: 700 }}>{rub(l?.price ?? 0)}</div>
+              {(cfg.printDate ?? true) && <div style={{ fontSize: 9 }}>{date}</div>}
+            </div>
+          );
+        })()}
         <div className="h2">Настройки этикетки</div>
         <label className="field"><span>Высота, мм</span>{num('labelHeight')}</label>
         <label className="field"><span>Размер шрифта названия</span>{num('fontSize')}</label>
@@ -84,7 +96,7 @@ export default function Labels() {
       </main>
       {picker && store && (
         <ProductPicker storeId={store} skipServices onClose={() => setPicker(false)} onPick={(p) => {
-          setLines((cur) => (cur.some((l) => l.productId === p.id) ? cur : [...cur, { productId: p.id, name: p.name, copies: '1' }]));
+          setLines((cur) => (cur.some((l) => l.productId === p.id) ? cur : [...cur, { productId: p.id, name: p.name, copies: '1', price: p.stores.find((x) => x.storeId === store)?.salePrice ?? 0 }]));
           setPicker(false);
         }} />
       )}
