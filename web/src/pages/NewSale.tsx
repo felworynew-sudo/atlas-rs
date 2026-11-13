@@ -121,7 +121,10 @@ export default function NewSale() {
     if (p.hiddenInNewSale || (sp && !sp.active)) return false;
     if (cat !== 'all' && p.categoryId !== cat) return false;
     const q = search.trim().toLowerCase();
-    return !q || p.name.toLowerCase().includes(q) || p.barcodes.some((b) => b.includes(q));
+    // число в поиске — ищем и по цене: «1500», «1 500», «1500₽»; пока печатают («150») — цены, начинающиеся с этих цифр
+    const digits = q.replace(/[\s₽р.,]/g, '');
+    const byPrice = /^\d+$/.test(digits) && String(Math.round(sp?.salePrice ?? -1)).startsWith(digits);
+    return !q || byPrice || p.name.toLowerCase().includes(q) || p.barcodes.some((b) => b.includes(q));
   });
 
   function add(p: Product) {
@@ -221,7 +224,7 @@ export default function NewSale() {
 
   const catalog = (
     <section aria-label="Каталог">
-      <input type="search" placeholder="Поиск товаров" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
+      <input type="search" placeholder="Поиск по названию или цене" value={search} onChange={(e) => setSearch(e.target.value)} style={{ marginBottom: 12 }} />
       <div className="chips">
         <button className={`chip small${cat === 'all' ? ' active' : ''}`} onClick={() => setCat('all')}>Все</button>
         {(cats.data ?? []).map((c) => (
