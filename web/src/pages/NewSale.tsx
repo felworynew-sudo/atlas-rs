@@ -65,7 +65,10 @@ export default function NewSale() {
 
   const stockMap = useMemo(() => new Map((stock.data ?? []).map((r) => [r.productId, r])), [stock.data]);
   const purchase = (purchases.data ?? []).find((p) => p.id === (purchaseId ?? purchases.data?.[0]?.id));
-  const payment = (payments.data ?? []).find((p) => p.id === (paymentId ?? payments.data?.[0]?.id));
+  // по умолчанию — терминал (так платят чаще всего); если терминала нет — первый способ из списка
+  const defaultPaymentId = ((payments.data ?? []).find((p) => p.params.kind === 'terminal') ?? payments.data?.[0])?.id;
+  const payment = (payments.data ?? []).find((p) => p.id === (paymentId ?? defaultPaymentId));
+  const otherPayment = payment?.params.kind === 'other' && !mixed;
   const baseTotals = rawLines.reduce((a, l) => ({ qty: a.qty + l.qty, sum: a.sum + l.qty * l.price }), { qty: 0, sum: 0 });
   const autoType = (priceTypes.data ?? []).find((t) => {
     const r = t.rules;
@@ -264,7 +267,7 @@ export default function NewSale() {
         )}
       </div>
 
-      {s.can('client.view') && (
+      {s.can('client.view') && flag('clientInSale', false) && (
         <div style={{ marginBottom: 14 }}>
           <span className="label">Клиент</span>
           {client ? (
@@ -295,6 +298,11 @@ export default function NewSale() {
           <button key={p.id} className={`chip small${p.id === payment?.id ? ' active' : ''}`} onClick={() => setPaymentId(p.id)}>{methodIcon(p)}{String(p.params.label ?? '') || p.name}</button>
         ))}
       </div>
+      {otherPayment && (
+        <label className="field"><span>Чем оплачено — заметка</span>
+          <input type="text" value={saleComment} placeholder="например: оплата по ссылке, бартер" onChange={(e) => setSaleComment(e.target.value)} />
+        </label>
+      )}
       {(priceTypes.data ?? []).length > 0 && (
         <label className="field"><span>Тип цены</span>
           <select value={typeChoice} onChange={(e) => setTypeChoice(e.target.value)}>
@@ -324,7 +332,6 @@ export default function NewSale() {
         </>
       )}
 
-      {lines.length === 0 && <div className="muted" style={{ margin: '16px 0' }}>Добавьте товар, чтобы оформить продажу</div>}
       {lines.map((l) => (
         <div className="cart-line" key={l.key}>
           <span className="grow">{l.name}</span>
@@ -354,7 +361,7 @@ export default function NewSale() {
       )}
       {flag('dateFieldVisible', false) && <label className="field"><span>Дата продажи</span><input type="date" value={saleDate} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setSaleDate(e.target.value)} /></label>}
       {flag('tableNumberFieldVisible', false) && <label className="field"><span>Номер стола</span><input type="text" value={tableNo} onChange={(e) => setTableNo(e.target.value)} /></label>}
-      {flag('commentFieldVisible', false) && <label className="field"><span>Комментарий</span><input type="text" value={saleComment} onChange={(e) => setSaleComment(e.target.value)} /></label>}
+      {flag('commentFieldVisible', false) && !otherPayment && <label className="field"><span>Комментарий</span><input type="text" value={saleComment} onChange={(e) => setSaleComment(e.target.value)} /></label>}
       <label className="row" style={{ gap: 8, marginBottom: 8 }}>
         <input type="checkbox" checked={deliveryOn} style={{ width: 20, height: 20 }} onChange={(e) => { setDeliveryOn(e.target.checked); if (e.target.checked) { if (!deliveryAddress && client?.address) setDeliveryAddress(client.address); if (!deliveryPhone && client?.phone) setDeliveryPhone(client.phone); } }} />
         <span>Доставка</span>
@@ -380,6 +387,7 @@ export default function NewSale() {
       {error && <div className="error" role="alert">{error}</div>}
       {flag('showSaveCartForLater', true) && <button className="btn light" style={{ marginBottom: 10 }} disabled={lines.length === 0} onClick={postpone}>Отложить</button>}
       <button className="btn" disabled={lines.length === 0 || busy || mixedInvalid} onClick={checkout}>Готово</button>
+      {lines.length === 0 && <div className="muted" style={{ margin: '10px 0 0', textAlign: 'center', fontSize: 13 }}>Добавьте товар, чтобы оформить продажу</div>}
     </section>
   );
 
