@@ -101,41 +101,8 @@ async fn signup(State(state): State<AppState>, Json(dto): Json<SignupDto>) -> Ap
     let password_hash = hash_password(&dto.password)?;
 
     let mut tx = state.pool.begin().await?;
-    let org_id = Uuid::new_v4();
-    let flags = serde_json::to_value(modules::default_flags()).map_err(|e| AppError::Internal(e.to_string()))?;
-    sqlx::query("INSERT INTO organizations (id, name, modules) VALUES ($1, $2, $3)")
-        .bind(org_id)
-        .bind(dto.organization_name.trim())
-        .bind(flags)
-        .execute(&mut *tx)
-        .await?;
-
-    let store_id = Uuid::new_v4();
-    sqlx::query("INSERT INTO stores (id, organization_id, name) VALUES ($1, $2, $3)")
-        .bind(store_id)
-        .bind(org_id)
-        .bind(dto.store_name.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("Филиал 1"))
-        .execute(&mut *tx)
-        .await?;
-
-    let mut admin_role_id = Uuid::nil();
-    for r in roles::defaults() {
-        let id = Uuid::new_v4();
-        if r.key == roles::ADMIN_KEY {
-            admin_role_id = id;
-        }
-        sqlx::query("INSERT INTO roles (id, organization_id, key, name, permissions) VALUES ($1, $2, $3, $4, $5)")
-            .bind(id)
-            .bind(org_id)
-            .bind(r.key)
-            .bind(r.name)
-            .bind(&r.permissions)
-            .execute(&mut *tx)
-            .await?;
-    }
-
-    super::refs::seed_default_units(&mut tx, org_id).await?;
-    super::lists::seed_defaults(&mut tx, org_id).await?;
+    let (org_id, store_id, admin_role_id) =
+        create_organization(&mut tx, dto.organization_name.trim(), dto.store_name.as_deref().map(str::trim).filter(|s| !s.is_empty()).unwrap_or("Филиал 1")).await?;
 
     let user_id = Uuid::new_v4();
     sqlx::query(
@@ -161,6 +128,51 @@ async fn signup(State(state): State<AppState>, Json(dto): Json<SignupDto>) -> Ap
     Ok(Json(LoginResponse { token, user: load_user_view(&state, user_id).await? }))
 }
 
+/// Новая организация со всем, что нужно для работы: модули по умолчанию, первый филиал, роли, единицы, списки.
+/// Возвращает (организация, филиал, роль «Админ»).
+pub async fn create_organization(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org_name: &str,
+    store_name: &str,
+) -> AppResult<(Uuid, Uuid, Uuid)> {
+    let org_id = Uuid::new_v4();
+    let flags = serde_json::to_value(modules::default_flags()).map_err(|e| AppError::Internal(e.to_string()))?;
+    sqlx::query("INSERT INTO organizations (id, name, modules) VALUES ($1, $2, $3)")
+        .bind(org_id)
+        .bind(org_name)
+        .bind(flags)
+        .execute(&mut **tx)
+        .await?;
+
+    let store_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO stores (id, organization_id, name) VALUES ($1, $2, $3)")
+        .bind(store_id)
+        .bind(org_id)
+        .bind(store_name)
+        .execute(&mut **tx)
+        .await?;
+
+    let mut admin_role_id = Uuid::nil();
+    for r in roles::defaults() {
+        let id = Uuid::new_v4();
+        if r.key == roles::ADMIN_KEY {
+            admin_role_id = id;
+        }
+        sqlx::query("INSERT INTO roles (id, organization_id, key, name, permissions) VALUES ($1, $2, $3, $4, $5)")
+            .bind(id)
+            .bind(org_id)
+            .bind(r.key)
+            .bind(r.name)
+            .bind(&r.permissions)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    super::refs::seed_default_units(tx, org_id).await?;
+    super::lists::seed_defaults(tx, org_id).await?;
+    Ok((org_id, store_id, admin_role_id))
+}
+
 async fn login(State(state): State<AppState>, Json(dto): Json<LoginDto>) -> AppResult<Json<LoginResponse>> {
     let email = dto.email.trim().to_lowercase();
     let row: Option<(Uuid, String, bool)> =
@@ -182,8 +194,23 @@ async fn me(State(state): State<AppState>, ctx: AuthContext) -> AppResult<Json<U
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SsoDto {
-    pub email: String,
+    #[serde(default)]
+    pub email: Option<String>,
+    /// id учётной записи на сайте (`users.external_id`, заводится через `POST /api/site/sync`).
+    #[serde(default)]
+    pub external_id: Option<String>,
+}
+
+/// Запрос от серверной части сайта: заголовок `X-Sso-Secret` совпадает с `SSO_SECRET` (не короче 16 символов).
+pub fn check_site_secret(headers: &axum::http::HeaderMap) -> AppResult<()> {
+    let expected = std::env::var("SSO_SECRET").ok().filter(|v| v.len() >= 16).ok_or(AppError::NotFound("Вход с сайта не настроен".into()))?;
+    let given = headers.get("x-sso-secret").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if !same_secret(given, &expected) {
+        return Err(AppError::Unauthorized("Неверный секрет входа с сайта".into()));
+    }
+    Ok(())
 }
 
 fn same_secret(a: &str, b: &str) -> bool {
@@ -194,16 +221,20 @@ fn same_secret(a: &str, b: &str) -> bool {
 /// с общим секретом (`SSO_SECRET`, заголовок `X-Sso-Secret`) и email сотрудника и получает токен Атласа на 12 часов.
 /// Пользователь должен уже существовать в Атласе и быть активным; без `SSO_SECRET` метод выключен.
 async fn sso(State(state): State<AppState>, headers: axum::http::HeaderMap, Json(dto): Json<SsoDto>) -> AppResult<Json<LoginResponse>> {
-    let expected = std::env::var("SSO_SECRET").ok().filter(|v| v.len() >= 16).ok_or(AppError::NotFound("Вход с сайта не настроен".into()))?;
-    let given = headers.get("x-sso-secret").and_then(|v| v.to_str().ok()).unwrap_or("");
-    if !same_secret(given, &expected) {
-        return Err(AppError::Unauthorized("Неверный секрет входа с сайта".into()));
-    }
-    let email = dto.email.trim().to_lowercase();
-    let row: Option<(Uuid, bool)> = sqlx::query_as("SELECT id, active FROM users WHERE lower(email) = $1")
-        .bind(&email)
+    check_site_secret(&headers)?;
+    let row: Option<(Uuid, bool)> = match (dto.external_id.as_deref().map(str::trim).filter(|v| !v.is_empty()), dto.email.as_deref()) {
+        (Some(ext), _) => sqlx::query_as(
+            "SELECT u.id, u.active FROM users u JOIN organizations o ON o.id = u.organization_id              WHERE o.external_id IS NOT NULL AND u.external_id = $1",
+        )
+        .bind(ext)
         .fetch_optional(&state.pool)
-        .await?;
+        .await?,
+        (None, Some(email)) => sqlx::query_as("SELECT id, active FROM users WHERE lower(email) = $1")
+            .bind(email.trim().to_lowercase())
+            .fetch_optional(&state.pool)
+            .await?,
+        (None, None) => return Err(AppError::BadRequest("Нужен email или externalId".into())),
+    };
     let (id, active) = row.ok_or(AppError::NotFound("Сотрудник не заведён в Атласе".into()))?;
     if !active {
         return Err(AppError::Forbidden);

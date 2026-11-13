@@ -1,5 +1,7 @@
 // Клиент API Атласа: Bearer-токен сессии в localStorage, ошибки в формате {statusCode, message, error}.
-const TOKEN_KEY = 'atlas.token';
+import { BASE } from './base';
+
+const TOKEN_KEY = BASE ? 'crm-app.atlas.token' : 'atlas.token';
 
 export function getToken(): string | null {
   try {
@@ -32,7 +34,7 @@ export function buildUrl(path: string, query?: Query): string {
     if (v !== undefined && v !== null && v !== '') params.set(k, String(v));
   }
   const qs = params.toString();
-  return `/api${path}${qs ? `?${qs}` : ''}`;
+  return `${BASE}/api${path}${qs ? `?${qs}` : ''}`;
 }
 
 export async function api<T>(path: string, opts: { method?: string; body?: unknown; query?: Query } = {}): Promise<T> {

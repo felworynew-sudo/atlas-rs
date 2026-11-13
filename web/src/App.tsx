@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import Home from './pages/Home';
 import Login from './pages/Login';
@@ -42,10 +43,12 @@ import WriteoffForm from './pages/WriteoffForm';
 import Writeoffs from './pages/Writeoffs';
 import { useSession } from './session';
 import { Spinner } from './ui';
+import { EMBEDDED, askSiteLogin } from './base';
 
 export default function App() {
   const s = useSession();
   if (!s.ready) return <Spinner />;
+  if (!s.user && EMBEDDED) return <SiteLoginNeeded />;
   if (!s.user) return <Login />;
   return (
     <div className="app">
@@ -93,6 +96,16 @@ export default function App() {
         <Route path="/revision/:id" element={<RevisionForm />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+    </div>
+  );
+}
+
+/** Внутри дев-панели своего входа нет: просим сайт выдать новый (он перезагрузит рамку). */
+function SiteLoginNeeded() {
+  useEffect(() => askSiteLogin(), []);
+  return (
+    <div className="app" style={{ padding: 24, textAlign: 'center' }}>
+      <p>Сессия CRM закончилась. Обновите вкладку «CRM» в дев-панели.</p>
     </div>
   );
 }

@@ -20,6 +20,7 @@ pub mod salary;
 pub mod sales;
 pub mod settings;
 pub mod shifts;
+pub mod site;
 pub mod stocks;
 pub mod supply_orders;
 pub mod transfers;

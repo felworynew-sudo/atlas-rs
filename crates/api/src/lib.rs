@@ -56,6 +56,7 @@ pub fn app(state: AppState) -> Router {
         .nest("/api/api-drafts", routes::api_tokens::drafts_router())
         .nest("/api/v1", routes::v1::router())
         .nest("/api/shifts", routes::shifts::router())
+        .nest("/api/site", routes::site::router())
         .nest("/api/salary", routes::salary::router())
         .nest("/api/salary-payments", routes::salary::payments_router())
         .nest("/api/working-hours", routes::salary::hours_router())

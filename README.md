@@ -47,6 +47,14 @@ cargo run -p atlas-api        # слушает BIND (по умолчанию 0.0
 Сотрудник должен быть заведён в Атласе (раздел «Настройки → Пользователи») с той же почтой, что и на сайте, и быть активным. Секрет и токен нельзя отдавать в браузер напрямую: вызывать `/api/auth/sso` можно только с сервера сайта.
 Пример (Node): `const r = await fetch(ATLAS + '/api/auth/sso', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Sso-Secret': process.env.SSO_SECRET }, body: JSON.stringify({ email: session.user.email }) }); const { token } = await r.json(); res.redirect(`${ATLAS_WEB}/#sso=${token}`);`
 
+### Связь с сайтом студии (вкладка «CRM» дев-панели)
+Сайт — главный по сотрудникам и правам. Все методы — только с сервера сайта, заголовок `X-Sso-Secret`:
+- `POST /api/site/sync` — филиалы и учётные записи дев-панели по их id (`stores.external_id`, `users.external_id`, `users.staff_external_id`, миграция `0014_site_link.sql`). Первый вызов заводит организацию (модуль «Смена» включён, способы оплаты «Перевод» и «Сертификат»). Роли: `admin` → «Админ», `seller` → «Продавец», `viewer` → «Просмотр (сайт)»; кого сайт не прислал — выключается.
+- `POST /api/auth/sso` принимает `{"externalId": "<id учётной записи сайта>"}` (или `email`, как раньше).
+- `GET /api/site/sales?from&to` — движения денег для сверки с кассой: продажи (смешанная оплата — двумя строками), возвраты деньгами (сумма < 0), оплаты комплексных продаж (в день поступления). Рабочий день — дата открытия смены, накрывающей операцию (как у кассового отчёта), без смены — граница 06:00 по поясу филиала. Код оплаты: `params.siteCode`/`params.kind` способа оплаты (cash, card ← terminal/qr, transfer, cert).
+
+Интерфейс для сайта собирается с `ATLAS_BASE=/crm-app/ npm run build`: всё (страницы и `/crm-app/api`) живёт под этим путём на домене сайта; в рамке дев-панели свой вход скрыт, по истечении токена интерфейс просит у сайта новый (`postMessage {type: "atlas:login-required"}`).
+
 ## Тесты
 ```bash
 cargo test -p atlas-domain
