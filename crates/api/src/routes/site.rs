@@ -82,6 +82,10 @@ fn site_email(login: &str) -> String {
     format!("{}@staff.site", login.trim().to_lowercase())
 }
 
+/// Автозакрытие смен новых филиалов сайта: в 06:00, а не в полночь — ночные продажи остаются в смене открытия
+/// (граница рабочего дня та же, что у кассы и у выгрузки `/api/site/sales`). Потом можно поменять в настройках филиала.
+const SITE_AUTO_CLOSE: &str = "06:00";
+
 /// Способы оплаты, нужные для сверки с кассой (помимо «Наличные», «QR», «Терминал» по умолчанию).
 const SITE_METHODS: &[(&str, &str)] = &[("Перевод", "transfer"), ("Сертификат", "cert")];
 
@@ -105,7 +109,7 @@ async fn sync(State(state): State<AppState>, headers: HeaderMap, Json(dto): Json
                 .bind(ext)
                 .execute(&mut *tx)
                 .await?;
-            sqlx::query("UPDATE stores SET external_id=$2 WHERE id=$1").bind(store_id).bind(first.external_id.trim()).execute(&mut *tx).await?;
+            sqlx::query("UPDATE stores SET external_id=$2, auto_close_time=$3 WHERE id=$1").bind(store_id).bind(first.external_id.trim()).bind(SITE_AUTO_CLOSE).execute(&mut *tx).await?;
             for (i, (name, code)) in SITE_METHODS.iter().enumerate() {
                 sqlx::query("INSERT INTO list_items (id, organization_id, kind, name, params, sort_order) VALUES ($1,$2,'payment_methods',$3,$4,$5)")
                     .bind(Uuid::new_v4())
@@ -136,11 +140,12 @@ async fn sync(State(state): State<AppState>, headers: HeaderMap, Json(dto): Json
             }
             None => {
                 let id = Uuid::new_v4();
-                sqlx::query("INSERT INTO stores (id, organization_id, name, external_id) VALUES ($1,$2,$3,$4)")
+                sqlx::query("INSERT INTO stores (id, organization_id, name, external_id, auto_close_time) VALUES ($1,$2,$3,$4,$5)")
                     .bind(id)
                     .bind(org_id)
                     .bind(st.name.trim())
                     .bind(e)
+                    .bind(SITE_AUTO_CLOSE)
                     .execute(&mut *tx)
                     .await?;
                 id
