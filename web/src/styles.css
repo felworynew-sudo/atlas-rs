@@ -144,3 +144,79 @@ input:focus, select:focus, textarea:focus { box-shadow: 0 0 0 1px var(--accent);
 .table th { text-align: left; font-size: 12px; font-weight: 800; padding: 6px 4px; }
 .table td { padding: 8px 4px; border-top: 1px solid var(--fill); }
 .table td.num, .table th.num { text-align: right; }
+
+/* ===== Оформление сайта WOW My eyes: Атлас внутри дев-панели (/crm-app/, data-skin="wow") =====
+   Тёмно-синее небо, полупрозрачные синие карточки, золотые акценты, Montserrat (шрифт берётся с сайта, тот же домен).
+   Стоит после светлой/тёмной тем, поэтому перекрывает их. */
+@font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('/fonts/montserrat-cyrillic.woff2') format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: 'Montserrat'; font-style: normal; font-weight: 100 900; font-display: swap; src: url('/fonts/montserrat-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
+html:root[data-skin='wow'] {
+  --bg: #02061c;
+  --surface: rgba(16, 26, 85, 0.62);
+  --surface-solid: #0b1446;
+  --input: rgba(2, 8, 32, 0.75);
+  --fill: rgba(143, 182, 255, 0.06);
+  --fill-hover: rgba(143, 182, 255, 0.16);
+  --text: #eef2ff;
+  --hint: #9fabd6;
+  --accent: #e8a33d;
+  --accent-2: #f5c86a;
+  --accent-fill: rgba(232, 163, 61, 0.12);
+  --danger: #ff6b6b;
+  --danger-btn: #ff6b81;
+  --success: #6ee7a8;
+  --border: rgba(143, 182, 255, 0.24);
+  --line: rgba(143, 182, 255, 0.14);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --radius: 14px;
+  --font: 'Montserrat', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: dark;
+}
+html[data-skin='wow'] body {
+  background:
+    radial-gradient(40% 30% at 82% 12%, rgba(43, 85, 220, 0.32), transparent 70%),
+    radial-gradient(45% 35% at 8% 55%, rgba(30, 60, 190, 0.26), transparent 70%),
+    radial-gradient(50% 30% at 60% 100%, rgba(20, 40, 150, 0.3), transparent 70%),
+    linear-gradient(160deg, #061245 0%, #020820 55%, #030a2a 100%) fixed;
+}
+[data-skin='wow'] .header { background: rgba(2, 8, 32, 0.82); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+[data-skin='wow'] .header h1 { font-weight: 600; letter-spacing: 0.01em; }
+[data-skin='wow'] .icon-btn:hover { background: var(--fill-hover); color: var(--accent-2); }
+[data-skin='wow'] .btn { border-radius: 999px; background: linear-gradient(180deg, #f8d27e, #e8a33d); color: #050d30; box-shadow: 0 6px 18px rgba(232, 163, 61, 0.25); }
+[data-skin='wow'] .btn:hover:not(:disabled) { filter: brightness(1.06); }
+[data-skin='wow'] .btn.light { background: var(--fill-hover); color: var(--text); box-shadow: none; border: 1px solid var(--border); }
+[data-skin='wow'] .btn.danger { background: transparent; box-shadow: none; }
+[data-skin='wow'] input[type='text'], [data-skin='wow'] input[type='email'], [data-skin='wow'] input[type='password'], [data-skin='wow'] input[type='number'],
+[data-skin='wow'] input[type='date'], [data-skin='wow'] input[type='search'], [data-skin='wow'] select, [data-skin='wow'] textarea {
+  border: 1px solid var(--border); border-radius: 12px; }
+[data-skin='wow'] input:focus, [data-skin='wow'] select:focus, [data-skin='wow'] textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(232, 163, 61, 0.35); }
+[data-skin='wow'] label.field > span, [data-skin='wow'] .label { font-weight: 600; color: var(--hint); letter-spacing: 0.02em; }
+[data-skin='wow'] .chip { border-radius: 999px; border: 1px solid var(--border); font-weight: 600; }
+[data-skin='wow'] .chip.active { border-color: var(--accent); color: var(--accent-2); background: var(--accent-fill); }
+[data-skin='wow'] .card { border: 1px solid var(--line); border-radius: 16px; backdrop-filter: blur(6px); }
+[data-skin='wow'] .card.click:hover { border-color: rgba(232, 163, 61, 0.55); }
+[data-skin='wow'] .org-name { font-weight: 700; letter-spacing: 0.01em; }
+[data-skin='wow'] .stats b { color: var(--hint); font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; font-size: 11px; }
+[data-skin='wow'] .tile { border: 1px solid var(--line); border-radius: 22px; backdrop-filter: blur(6px); transition: border-color 0.2s, transform 0.2s, background 0.2s; }
+[data-skin='wow'] .tile:not(.off):hover { border-color: rgba(232, 163, 61, 0.6); background: rgba(16, 26, 85, 0.85); transform: translateY(-2px); }
+[data-skin='wow'] .tile svg { color: var(--accent); }
+[data-skin='wow'] .product { border: 1px solid var(--line); border-radius: 14px; }
+[data-skin='wow'] .product:hover { border-color: rgba(232, 163, 61, 0.55); }
+[data-skin='wow'] .qty-btn { background: var(--fill-hover); }
+[data-skin='wow'] .bills button { border-radius: 999px; border: 1px solid var(--border); }
+[data-skin='wow'] .sheet { background: transparent; backdrop-filter: none; }
+[data-skin='wow'] .sheet::before { content: ''; position: fixed; inset: 0; z-index: -1; background: linear-gradient(160deg, #061245 0%, #020820 55%, #030a2a 100%); }
+[data-skin='wow'] .modal-back { background: rgba(1, 4, 20, 0.65); backdrop-filter: blur(4px); }
+[data-skin='wow'] .modal { background: var(--surface-solid); border: 1px solid var(--border); border-radius: 22px; box-shadow: var(--shadow); }
+[data-skin='wow'] .modal .close { background: var(--fill-hover); color: var(--text); }
+[data-skin='wow'] .toast { background: var(--surface-solid); border: 1px solid var(--border); border-radius: 999px; }
+[data-skin='wow'] .h2 { font-weight: 700; }
+[data-skin='wow'] .day { color: var(--accent); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; }
+[data-skin='wow'] .table th { color: var(--hint); font-weight: 600; }
+[data-skin='wow'] .table td { border-top-color: var(--line); }
+[data-skin='wow'] .cart-line { border-bottom-color: var(--line); }
+[data-skin='wow'] a { color: var(--accent-2); }
+[data-skin='wow'] input[type='checkbox'], [data-skin='wow'] input[type='radio'] { accent-color: var(--accent); }
