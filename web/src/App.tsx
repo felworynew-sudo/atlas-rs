@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import NewSale from './pages/NewSale';
+import Paintings from './pages/Paintings';
 import ProductEdit from './pages/ProductEdit';
 import Products from './pages/Products';
 import SaleDetail from './pages/SaleDetail';
@@ -55,6 +56,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/new-sale" element={<NewSale />} />
+        <Route path="/paintings" element={<Paintings />} />
         <Route path="/sales-history" element={<SalesHistory />} />
         <Route path="/sale/:id" element={<SaleDetail />} />
         <Route path="/products" element={<Products />} />

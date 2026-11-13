@@ -5,6 +5,8 @@ import { Icon, type IconName } from '../Icon';
 import { change, num, rub, saleTotals, type CartLine, type Discount } from '../money';
 import { useSession } from '../session';
 import { Header, Modal, Spinner, useLoad, useMedia, useToast } from '../ui';
+import { PaintingForm, guessPainting, type PaintingDraft } from '../PaintingForm';
+import { emptyPainting, staffLabel } from './Paintings';
 
 const BILLS = [1, 5, 10, 50, 100, 500, 1000, 5000];
 
@@ -61,6 +63,9 @@ export default function NewSale() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Sale | null>(null);
+  // «Это картина»: после продажи сразу карточка картины для листа «Печать» (тип и размер — по названиям товаров)
+  const [isPainting, setIsPainting] = useState(false);
+  const [painting, setPainting] = useState<PaintingDraft | null>(null);
   const idem = useRef(crypto.randomUUID());
 
   const stockMap = useMemo(() => new Map((stock.data ?? []).map((r) => [r.productId, r])), [stock.data]);
@@ -186,6 +191,13 @@ export default function NewSale() {
           items: lines.map((l) => (l.productId ? { productId: l.productId, qty: l.qty, price: l.price } : { name: l.name, qty: l.qty, price: l.price })),
         },
       });
+      if (isPainting) {
+        const names = lines.map((l) => l.name);
+        const store = s.stores.find((x) => x.id === storeId);
+        setPainting({ ...emptyPainting(staffLabel(s.user?.name ?? '', store?.name ?? '')), ...guessPainting(names),
+          payment: rub(payable), comment: names.join(', ').slice(0, 300), paymentStatus: 'полная оплата' });
+        setIsPainting(false);
+      }
       setDone(sale);
       reset();
       stock.reload();
@@ -387,6 +399,10 @@ export default function NewSale() {
         </>
       )}
 
+      <label className="row" style={{ gap: 8, marginBottom: 10 }}>
+        <input type="checkbox" checked={isPainting} style={{ width: 20, height: 20 }} onChange={(e) => setIsPainting(e.target.checked)} />
+        <span>Это картина — записать в таблицу картин</span>
+      </label>
       {error && <div className="error" role="alert">{error}</div>}
       {flag('showSaveCartForLater', true) && <button className="btn light" style={{ marginBottom: 10 }} disabled={lines.length === 0} onClick={postpone}>Отложить</button>}
       <button className="btn" disabled={lines.length === 0 || busy || mixedInvalid} onClick={checkout}>Готово</button>
@@ -482,7 +498,13 @@ export default function NewSale() {
         </Modal>
       )}
 
-      {done && (
+      {painting && (
+        <Modal onClose={() => setPainting(null)}>
+          <PaintingForm initial={painting} onCancel={() => setPainting(null)}
+            onSaved={(r) => { setPainting(null); say(r.tracker ? `Картина в таблице, трекер ${r.tracker}` : 'Картина записана в таблицу'); }} />
+        </Modal>
+      )}
+      {done && !painting && (
         <Modal onClose={() => setDone(null)}>
           <div className="h2" style={{ marginTop: 0 }}>Успешно</div>
           <p>Продажа на {rub(done.total)} оформлена.</p>

@@ -17,6 +17,8 @@ interface Tile {
 const TILES: Tile[] = [
   { title: 'Новая продажа', icon: 'plus', to: '/new-sale', perm: 'sale.new', module: 'simple_sales' },
   { title: 'История продаж', icon: 'clock', to: '/sales-history', perm: 'sale.history', module: 'simple_sales' },
+  // картины ведутся в листе «Печать» Google-таблицы (через сайт): та же таблица, что у трекера заказов
+  { title: 'Картины', icon: 'image', to: '/paintings', perm: 'sale.new', module: 'simple_sales' },
   { title: 'Комплексные продажи', icon: 'file-text', to: '/complex-sales', perm: 'complex_sale.view', module: 'complex_sales' },
   { title: 'Приемки', icon: 'truck', to: '/supplies', perm: 'supply.history', module: 'supplies' },
   { title: 'Смена', icon: 'hash', to: '/shift', perm: 'shift.view', module: 'shifts' },
