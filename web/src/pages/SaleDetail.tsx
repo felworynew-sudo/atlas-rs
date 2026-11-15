@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, type Client, type ListItem, type Sale } from '../api';
 import { printInvoice, type PrintTemplate } from '../printInvoice';
 import { num, rub } from '../money';
 import { useSession } from '../session';
 import { Header, Modal, Spinner, useLoad, useToast } from '../ui';
+import { SaleEntry, saleDay } from '../SaleEntry';
 
 const name = (list: ListItem[] | null, id: string | null | undefined): string => (id ? (list ?? []).find((x) => x.id === id)?.name ?? '—' : '—');
 
@@ -20,7 +21,9 @@ export default function SaleDetail() {
   const clientId = sale.data?.clientId ?? null;
   const client = useLoad(() => (clientId && s.can('client.view') ? api<Client>(`/clients/${clientId}`) : Promise.resolve(null)), [clientId]);
   const reasons = useLoad(() => api<ListItem[]>('/lists/return_reasons'), []);
-  const [returning, setReturning] = useState(false);
+  const [params] = useSearchParams();
+  const [returning, setReturning] = useState(params.get('action') === 'return');
+  const [editing, setEditing] = useState(false);
   const [qty, setQty] = useState<Record<string, string>>({});
   const [kind, setKind] = useState<'money' | 'exchange'>('money');
   const [restock, setRestock] = useState(true);
@@ -74,6 +77,8 @@ export default function SaleDetail() {
           {client.data && <div className="sub">Клиент: {client.data.name} {client.data.phone}</div>}
           {d.delivery && <div className="sub">Доставка: {d.deliveryAddress || 'без адреса'} {d.deliveryPhone}</div>}
           {d.comment && <div className="sub">Комментарий: {d.comment}</div>}
+          {d.frameNumbers && <div className="sub">Кадры: {d.frameNumbers}</div>}
+          {d.orderKind && <div className="sub">Тип заказа: {d.orderKind}</div>}
         </div>
         <table className="table">
           <thead><tr><th>Название</th><th className="num">Кол-во</th><th className="num">Сумма</th></tr></thead>
@@ -106,12 +111,20 @@ export default function SaleDetail() {
         {d.returnedAmount > 0 && <div className="low" style={{ margin: '12px 0' }}>Возвращено {rub(d.returnedAmount)}</div>}
 
         <div style={{ marginTop: 24, display: 'grid', gap: 10 }}>
+          {s.can('sale.new') && s.can('sale.history') && s.stores.some((store) => store.id === d.storeId) &&
+            <button className="btn light" onClick={() => setEditing(true)}>Редактировать продажу</button>}
           {canReturn && s.can('sale.history') && <button className="btn danger" onClick={() => setReturning(true)}>Оформить возврат</button>}
           {s.can('sale.delete') && <button className="btn danger" onClick={remove}>Удалить полностью продажу</button>}
         </div>
       </main>
 
-      {returning && (
+      {editing && <Modal onClose={() => setEditing(false)}>
+        <SaleEntry sale={d} storeId={d.storeId} day={saleDay(new Date(d.saleDate))} onCancel={() => setEditing(false)} onSaved={() => {
+          setEditing(false); sale.reload(); say('Изменения сохранены');
+        }} />
+      </Modal>}
+
+      {returning && canReturn && s.can('sale.history') && (
         <Modal onClose={() => setReturning(false)}>
           <div className="h2" style={{ marginTop: 0 }}>Возврат</div>
           {d.items.filter((i) => i.qty - i.returnedQty > 0).map((i) => (

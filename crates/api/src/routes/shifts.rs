@@ -17,7 +17,7 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{FromRow, PgPool};
+use sqlx::{FromRow, PgConnection, PgPool};
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
@@ -25,7 +25,7 @@ pub fn router() -> Router<AppState> {
         .route("/", get(list))
         .route("/current", get(current))
         .route("/open", post(open))
-        .route("/{id}", get(one))
+        .route("/{id}", get(one).patch(edit_closed))
         .route("/{id}/close", post(close))
         .route("/{id}/reopen", post(reopen))
         .route("/{id}/staff", post(staff_add))
@@ -37,6 +37,7 @@ pub fn router() -> Router<AppState> {
 #[serde(rename_all = "camelCase")]
 pub struct ShiftRow {
     pub id: Uuid,
+    pub revision: String,
     pub store_id: Uuid,
     pub opened_by: Uuid,
     pub opened_at: DateTime<Utc>,
@@ -122,14 +123,14 @@ pub struct ShiftView {
     pub totals: ShiftTotals,
 }
 
-const SELECT_SHIFTS: &str = "SELECT id, store_id, opened_by, opened_at, closed_at, closed_by, opening_cash::float8 AS opening_cash, \
+const SELECT_SHIFTS: &str = "SELECT id, xmin::text AS revision, store_id, opened_by, opened_at, closed_at, closed_by, opening_cash::float8 AS opening_cash, \
      expected_cash::float8 AS expected_cash, actual_cash::float8 AS actual_cash, diff::float8 AS diff, comment, auto_closed, close_details \
      FROM shifts WHERE organization_id=$1 AND ($2::uuid IS NULL OR id=$2) AND ($3::uuid IS NULL OR store_id=$3) \
        AND ($4::timestamptz IS NULL OR opened_at >= $4) AND ($5::timestamptz IS NULL OR opened_at < $5) \
        AND (NOT $6 OR closed_at IS NULL) ORDER BY opened_at DESC LIMIT 500";
 
 /// Итоги смены за окно `[opened_at, end)`. Для открытой смены `end` — текущий момент.
-pub async fn totals(pool: &PgPool, org: Uuid, shift: &ShiftRow, end: DateTime<Utc>) -> AppResult<ShiftTotals> {
+async fn totals(db: &mut PgConnection, org: Uuid, shift: &ShiftRow, end: DateTime<Utc>) -> AppResult<ShiftTotals> {
     let (sales, checks, cash_sales): (f64, i64, f64) = sqlx::query_as(
         "SELECT COALESCE(SUM(s.total),0)::float8, COUNT(*), \
                 COALESCE(SUM(CASE WHEN s.second_payment_method_id IS NULL \
@@ -140,7 +141,7 @@ pub async fn totals(pool: &PgPool, org: Uuid, shift: &ShiftRow, end: DateTime<Ut
          WHERE s.shift_id = $1 AND s.deleted_at IS NULL",
     )
     .bind(shift.id)
-    .fetch_one(pool)
+    .fetch_one(&mut *db)
     .await?;
     // возвраты денег по продажам, оплаченным наличными одним методом, сделанные в окне смены
     let (cash_returns,): (f64,) = sqlx::query_as(
@@ -152,7 +153,7 @@ pub async fn totals(pool: &PgPool, org: Uuid, shift: &ShiftRow, end: DateTime<Ut
     .bind(shift.store_id)
     .bind(shift.opened_at)
     .bind(end)
-    .fetch_one(pool)
+    .fetch_one(&mut *db)
     .await?;
     let (cash_spendings,): (f64,) = sqlx::query_as(
         "SELECT COALESCE(SUM(sp.amount),0)::float8 FROM spendings sp JOIN wallets w ON w.id = sp.wallet_id \
@@ -161,7 +162,7 @@ pub async fn totals(pool: &PgPool, org: Uuid, shift: &ShiftRow, end: DateTime<Ut
     .bind(shift.store_id)
     .bind(shift.opened_at)
     .bind(end)
-    .fetch_one(pool)
+    .fetch_one(&mut *db)
     .await?;
     let (paid_supplies,): (f64,) = sqlx::query_as(
         "SELECT COALESCE(SUM(-t.delta),0)::float8 FROM wallet_transactions t JOIN wallets w ON w.id = t.wallet_id \
@@ -170,14 +171,14 @@ pub async fn totals(pool: &PgPool, org: Uuid, shift: &ShiftRow, end: DateTime<Ut
     .bind(shift.store_id)
     .bind(shift.opened_at)
     .bind(end)
-    .fetch_one(pool)
+    .fetch_one(&mut *db)
     .await?;
     let (deposits, withdrawals): (f64, f64) = sqlx::query_as(
         "SELECT COALESCE(SUM(amount) FILTER (WHERE amount > 0),0)::float8, COALESCE(-SUM(amount) FILTER (WHERE amount < 0),0)::float8 \
          FROM cashbox_transactions WHERE shift_id=$1",
     )
     .bind(shift.id)
-    .fetch_one(pool)
+    .fetch_one(&mut *db)
     .await?;
     let expected = expected_cash(&CashInput {
         opening: shift.opening_cash,
@@ -194,14 +195,14 @@ pub async fn totals(pool: &PgPool, org: Uuid, shift: &ShiftRow, end: DateTime<Ut
          WHERE organization_id=$1 AND kind='payment_methods' AND deleted_at IS NULL ORDER BY sort_order, created_at",
     )
     .bind(org)
-    .fetch_all(pool)
+    .fetch_all(&mut *db)
     .await?;
     let sale_rows: Vec<(Option<Uuid>, Option<Uuid>, f64, Option<f64>, Option<f64>)> = sqlx::query_as(
         "SELECT payment_method_id, second_payment_method_id, total::float8, first_payment_value::float8, second_payment_value::float8 \
          FROM sales WHERE shift_id=$1 AND deleted_at IS NULL",
     )
     .bind(shift.id)
-    .fetch_all(pool)
+    .fetch_all(&mut *db)
     .await?;
     let ret_rows: Vec<(Option<Uuid>, f64)> = sqlx::query_as(
         "SELECT s.payment_method_id, r.amount::float8 FROM sale_returns r JOIN sales s ON s.id = r.sale_id \
@@ -210,7 +211,7 @@ pub async fn totals(pool: &PgPool, org: Uuid, shift: &ShiftRow, end: DateTime<Ut
     .bind(shift.store_id)
     .bind(shift.opened_at)
     .bind(end)
-    .fetch_all(pool)
+    .fetch_all(&mut *db)
     .await?;
     let mut by_method: Vec<MethodTotals> = methods
         .into_iter()
@@ -241,7 +242,7 @@ pub async fn totals(pool: &PgPool, org: Uuid, shift: &ShiftRow, end: DateTime<Ut
          WHERE s.shift_id=$1 AND s.deleted_at IS NULL GROUP BY s.user_id, u.name ORDER BY u.name",
     )
     .bind(shift.id)
-    .fetch_all(pool)
+    .fetch_all(&mut *db)
     .await?;
     Ok(ShiftTotals {
         by_method,
@@ -261,7 +262,7 @@ pub async fn totals(pool: &PgPool, org: Uuid, shift: &ShiftRow, end: DateTime<Ut
 
 async fn view(pool: &PgPool, org: Uuid, row: ShiftRow) -> AppResult<ShiftView> {
     let end = row.closed_at.unwrap_or_else(Utc::now);
-    let t = totals(pool, org, &row, end).await?;
+    let t = totals(&mut *pool.acquire().await?, org, &row, end).await?;
     let staff = sqlx::query_as::<_, StaffView>(
         "SELECT ss.shift_id, ss.user_id, u.name, ss.added_at FROM shift_staff ss JOIN users u ON u.id = ss.user_id \
          WHERE ss.shift_id=$1 ORDER BY ss.added_at",
@@ -339,7 +340,9 @@ async fn current(State(s): State<AppState>, ctx: AuthContext, Query(q): Query<Cu
 
 async fn one(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>) -> AppResult<Json<ShiftView>> {
     ctx.require("shift.view")?;
-    Ok(Json(view_one(&s.pool, ctx.org_id, id).await?))
+    let shift = view_one(&s.pool, ctx.org_id, id).await?;
+    check_store(&s.pool, &ctx, shift.shift.store_id).await?;
+    Ok(Json(shift))
 }
 
 #[derive(Deserialize)]
@@ -372,55 +375,73 @@ async fn start_hours(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, org: Uuid, 
 async fn open(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json<OpenDto>) -> AppResult<Json<ShiftView>> {
     ctx.require("shift.view")?;
     check_store(&s.pool, &ctx, dto.store_id).await?;
-    let (open,): (i64,) = sqlx::query_as("SELECT count(*) FROM shifts WHERE store_id=$1 AND closed_at IS NULL")
-        .bind(dto.store_id)
-        .fetch_one(&s.pool)
+    let id = open_shift(&s.pool, ctx.org_id, dto.store_id, ctx.user_id, dto.opening_cash, &dto.staff_ids).await?;
+    Ok(Json(view_one(&s.pool, ctx.org_id, id).await?))
+}
+
+/// Открыть смену филиала: «Наличных в кассе на начало» по умолчанию — остаток счёта «Наличные с кассы»,
+/// Открывший всегда в составе смены. У филиала сайта одна кассовая смена за календарный день.
+async fn open_shift(pool: &PgPool, org: Uuid, store: Uuid, opener: Uuid, opening_cash: Option<f64>, staff_ids: &[Uuid]) -> AppResult<Uuid> {
+    let mut tx = pool.begin().await?;
+    let store_exists: Option<Uuid> = sqlx::query_scalar("SELECT id FROM stores WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL FOR UPDATE")
+        .bind(store)
+        .bind(org)
+        .fetch_optional(&mut *tx)
         .await?;
-    if open > 0 {
+    if store_exists.is_none() {
+        return Err(AppError::BadRequest("Филиал не найден".into()));
+    }
+    let (open, today): (bool, bool) = sqlx::query_as(
+        "SELECT EXISTS (SELECT 1 FROM shifts WHERE store_id=$1 AND closed_at IS NULL), \
+                EXISTS (SELECT 1 FROM shifts sh JOIN stores st ON st.id=sh.store_id WHERE st.id=$1 AND st.external_id IS NOT NULL \
+                    AND (sh.opened_at AT TIME ZONE st.timezone)::date=(now() AT TIME ZONE st.timezone)::date)",
+    ).bind(store).fetch_one(&mut *tx).await?;
+    if open {
         return Err(AppError::Conflict("Смена уже открыта".into()));
     }
-    let opening = match dto.opening_cash {
+    if today {
+        return Err(AppError::Conflict("Смена на сегодня уже закрыта. Откройте её в истории смен, чтобы внести исправления".into()));
+    }
+    let opening = match opening_cash {
         Some(v) if v.is_finite() && v >= 0.0 => v,
         Some(_) => return Err(AppError::BadRequest("Наличных в кассе не может быть меньше нуля".into())),
         None => {
             let (v,): (f64,) = sqlx::query_as(
-                "SELECT COALESCE(SUM(t.delta),0)::float8 FROM wallet_transactions t JOIN wallets w ON w.id = t.wallet_id \
-                 WHERE w.is_cash_register AND w.store_id=$1 AND w.deleted_at IS NULL",
+                "SELECT COALESCE(SUM(t.delta),0)::float8 FROM wallet_transactions t JOIN wallets w ON w.id = t.wallet_id                  WHERE w.is_cash_register AND w.store_id=$1 AND w.deleted_at IS NULL",
             )
-            .bind(dto.store_id)
-            .fetch_one(&s.pool)
+            .bind(store)
+            .fetch_one(&mut *tx)
             .await?;
             v.max(0.0)
         }
     };
-    let mut staff = dto.staff_ids.clone();
-    if !staff.contains(&ctx.user_id) {
-        staff.push(ctx.user_id);
+    let mut staff = staff_ids.to_vec();
+    if !staff.contains(&opener) {
+        staff.push(opener);
     }
     let (found,): (i64,) = sqlx::query_as("SELECT count(*) FROM users WHERE organization_id=$1 AND active AND id = ANY($2)")
-        .bind(ctx.org_id)
+        .bind(org)
         .bind(&staff)
-        .fetch_one(&s.pool)
+        .fetch_one(&mut *tx)
         .await?;
     if found as usize != staff.len() {
         return Err(AppError::BadRequest("Сотрудник не найден".into()));
     }
     let id = Uuid::new_v4();
-    let mut tx = s.pool.begin().await?;
     sqlx::query("INSERT INTO shifts (id, organization_id, store_id, opened_by, opening_cash) VALUES ($1,$2,$3,$4,$5::float8)")
         .bind(id)
-        .bind(ctx.org_id)
-        .bind(dto.store_id)
-        .bind(ctx.user_id)
+        .bind(org)
+        .bind(store)
+        .bind(opener)
         .bind(opening)
         .execute(&mut *tx)
         .await?;
     for u in &staff {
         sqlx::query("INSERT INTO shift_staff (shift_id, user_id) VALUES ($1,$2)").bind(id).bind(u).execute(&mut *tx).await?;
-        start_hours(&mut tx, ctx.org_id, dto.store_id, id, *u, ctx.user_id).await?;
+        start_hours(&mut tx, org, store, id, *u, opener).await?;
     }
     tx.commit().await?;
-    Ok(Json(view_one(&s.pool, ctx.org_id, id).await?))
+    Ok(id)
 }
 
 #[derive(Deserialize)]
@@ -441,22 +462,29 @@ pub struct MethodActual {
     pub amount: f64,
 }
 
-/// Закрытие смены: расчёт наличных, разница «факт − расчёт», завершение рабочих часов.
-async fn close_shift(pool: &PgPool, org: Uuid, id: Uuid, actual: Option<f64>, by_method: &[MethodActual], comment: &str, user: Option<Uuid>, auto: bool, now: DateTime<Utc>) -> AppResult<()> {
-    let row = fetch_rows(pool, org, Some(id), &ListQuery::default())
-        .await?
-        .into_iter()
-        .next()
-        .ok_or_else(|| AppError::NotFound("Смена не найдена".into()))?;
-    if row.closed_at.is_some() {
-        return Err(AppError::BadRequest("Смена уже закрыта".into()));
+async fn lock_shift(db: &mut PgConnection, org: Uuid, id: Uuid) -> AppResult<ShiftRow> {
+    sqlx::query_as::<_, ShiftRow>(
+        "SELECT id, xmin::text AS revision, store_id, opened_by, opened_at, closed_at, closed_by, opening_cash::float8, \
+                expected_cash::float8, actual_cash::float8, diff::float8, comment, auto_closed, close_details \
+         FROM shifts WHERE organization_id=$1 AND id=$2 FOR UPDATE",
+    )
+        .bind(org).bind(id)
+        .fetch_optional(db).await?
+        .ok_or_else(|| AppError::NotFound("Смена не найдена".into()))
+}
+
+fn close_values(t: &ShiftTotals, actual: f64, by_method: &[MethodActual]) -> AppResult<(f64, Option<Value>)> {
+    if !actual.is_finite() || actual < 0.0 {
+        return Err(AppError::BadRequest("Фактически в кассе: введите сумму".into()));
     }
-    let t = totals(pool, org, &row, now).await?;
-    let actual = actual.unwrap_or(t.expected_cash);
     let mut diff = cash_difference(actual, t.expected_cash);
     // безналичные способы: ожидается «продажи − возвраты», разница суммируется в общую недосдачу
     let mut details: Vec<Value> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
     for m in by_method {
+        if !seen.insert(m.payment_method_id) {
+            return Err(AppError::BadRequest("Укажите одну сумму для каждого способа оплаты".into()));
+        }
         let method = t
             .by_method
             .iter()
@@ -470,20 +498,33 @@ async fn close_shift(pool: &PgPool, org: Uuid, id: Uuid, actual: Option<f64>, by
         diff = round2(diff + d);
         details.push(serde_json::json!({ "paymentMethodId": m.payment_method_id, "name": method.name, "expected": expected, "actual": m.amount, "diff": d }));
     }
+    Ok((diff, if details.is_empty() { None } else { Some(Value::Array(details)) }))
+}
+
+/// Закрытие смены: расчёт наличных, разница «факт − расчёт», завершение рабочих часов.
+async fn close_shift(pool: &PgPool, org: Uuid, id: Uuid, actual: Option<f64>, by_method: &[MethodActual], comment: &str, user: Option<Uuid>, auto: bool, now: DateTime<Utc>) -> AppResult<()> {
     let mut tx = pool.begin().await?;
+    let row = lock_shift(&mut tx, org, id).await?;
+    if row.closed_at.is_some() {
+        return Err(AppError::BadRequest("Смена уже закрыта".into()));
+    }
+    let end = now.max(row.opened_at);
+    let t = totals(&mut tx, org, &row, end).await?;
+    let actual = actual.unwrap_or(t.expected_cash);
+    let (diff, details) = close_values(&t, actual, by_method)?;
     let res = sqlx::query(
         "UPDATE shifts SET closed_at=$2, closed_by=$3, expected_cash=$4::float8, actual_cash=$5::float8, diff=$6::float8, comment=$7, auto_closed=$8, close_details=$9 \
          WHERE id=$1 AND closed_at IS NULL",
     )
     .bind(id)
-    .bind(now)
+    .bind(end)
     .bind(user)
     .bind(t.expected_cash)
     .bind(actual)
     .bind(diff)
     .bind(comment)
     .bind(auto)
-    .bind(if details.is_empty() { None } else { Some(Value::Array(details)) })
+    .bind(details)
     .execute(&mut *tx)
     .await?;
     if res.rows_affected() == 0 {
@@ -491,10 +532,66 @@ async fn close_shift(pool: &PgPool, org: Uuid, id: Uuid, actual: Option<f64>, by
     }
     sqlx::query("UPDATE working_hours SET ended_at=GREATEST($2, started_at) WHERE shift_id=$1 AND ended_at IS NULL")
         .bind(id)
-        .bind(now)
+        .bind(end)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EditClosedDto {
+    revision: String,
+    opening_cash: f64,
+    #[serde(flatten)]
+    close: CloseDto,
+}
+
+async fn write_closed_totals(db: &mut PgConnection, org: Uuid, row: &ShiftRow, end: DateTime<Utc>, actual: f64, by_method: &[MethodActual], comment: &str) -> AppResult<()> {
+    let t = totals(db, org, row, end).await?;
+    let (diff, details) = close_values(&t, actual, by_method)?;
+    sqlx::query("UPDATE shifts SET opening_cash=$2::float8, expected_cash=$3::float8, actual_cash=$4::float8, diff=$5::float8, close_details=$6, comment=$7 WHERE id=$1")
+        .bind(row.id).bind(row.opening_cash).bind(t.expected_cash).bind(actual).bind(diff).bind(details).bind(comment)
+        .execute(db).await?;
+    Ok(())
+}
+
+async fn edit_closed(State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>, Json(dto): Json<EditClosedDto>) -> AppResult<Json<ShiftView>> {
+    ctx.require("shift.edit_data")?;
+    if !dto.opening_cash.is_finite() || dto.opening_cash < 0.0 {
+        return Err(AppError::BadRequest("Укажите сумму наличных на начало смены".into()));
+    }
+    let mut tx = s.pool.begin().await?;
+    let mut row = lock_shift(&mut tx, ctx.org_id, id).await?;
+    check_store(&s.pool, &ctx, row.store_id).await?;
+    let end = row.closed_at.ok_or_else(|| AppError::BadRequest("Эта смена ещё открыта".into()))?;
+    if row.revision != dto.revision {
+        return Err(AppError::Conflict("Смена изменилась. Заново откройте её из истории перед сохранением".into()));
+    }
+    row.opening_cash = dto.opening_cash;
+    write_closed_totals(&mut tx, ctx.org_id, &row, end, dto.close.actual_cash, &dto.close.actual_by_method,
+        dto.close.comment.as_deref().unwrap_or(&row.comment).trim()).await?;
+    tx.commit().await?;
+    crate::events::log(&s.pool, ctx.org_id, Some(row.store_id), ctx.user_id, "shift_updated", "Исправлены данные закрытой смены").await;
+    Ok(Json(view_one(&s.pool, ctx.org_id, id).await?))
+}
+
+pub async fn refresh_closed_shift(db: &mut PgConnection, org: Uuid, id: Uuid) -> AppResult<()> {
+    let row = lock_shift(db, org, id).await?;
+    if let (Some(end), Some(actual)) = (row.closed_at, row.actual_cash) {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RecordedActual { payment_method_id: Uuid, actual: f64 }
+        let methods = match &row.close_details {
+            Some(value) => serde_json::from_value::<Vec<RecordedActual>>(value.clone())
+                .map_err(|e| AppError::Internal(e.to_string()))?,
+            None => Vec::new(),
+        };
+        let by_method: Vec<MethodActual> = methods.into_iter()
+            .map(|m| MethodActual { payment_method_id: m.payment_method_id, amount: m.actual }).collect();
+        write_closed_totals(db, org, &row, end, actual, &by_method, &row.comment).await?;
+    }
     Ok(())
 }
 
@@ -514,19 +611,18 @@ async fn close(
 
 /// Автозакрытие: смены, у которых наступило время автозакрытия филиала (в его часовом поясе). Возвращает число закрытых.
 pub async fn auto_close_due(pool: &PgPool, now: DateTime<Utc>) -> AppResult<usize> {
-    let due: Vec<(Uuid, Uuid)> = sqlx::query_as(
-        "SELECT s.id, s.organization_id FROM shifts s JOIN stores st ON st.id = s.store_id \
-         WHERE s.closed_at IS NULL AND \
-           ((date_trunc('day', s.opened_at AT TIME ZONE st.timezone) + st.auto_close_time::time \
+    let due: Vec<(Uuid, Uuid, DateTime<Utc>)> = sqlx::query_as(
+        "SELECT s.id, s.organization_id, deadline.at FROM shifts s JOIN stores st ON st.id = s.store_id \
+         CROSS JOIN LATERAL (SELECT ((date_trunc('day', s.opened_at AT TIME ZONE st.timezone) + st.auto_close_time::time \
              + CASE WHEN st.auto_close_time::time <= (s.opened_at AT TIME ZONE st.timezone)::time THEN interval '1 day' ELSE interval '0 day' END) \
-            AT TIME ZONE st.timezone) <= $1",
+            AT TIME ZONE st.timezone) AS at) deadline WHERE s.closed_at IS NULL AND deadline.at <= $1",
     )
     .bind(now)
     .fetch_all(pool)
     .await?;
     let mut n = 0;
-    for (id, org) in due {
-        if close_shift(pool, org, id, None, &[], "Автозакрытие", None, true, now).await.is_ok() {
+    for (id, org, end) in due {
+        if close_shift(pool, org, id, None, &[], "Автозакрытие", None, true, end).await.is_ok() {
             n += 1;
         }
     }

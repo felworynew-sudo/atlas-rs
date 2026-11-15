@@ -43,7 +43,28 @@ const VIEWER_PERMS: &[&str] = &[
 ];
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/sync", post(sync)).route("/sales", get(sales))
+    Router::new().route("/sync", post(sync)).route("/sales", get(sales)).route("/clients", get(clients))
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+struct ClientContact {
+    phone: String,
+    name: String,
+    first_at: chrono::DateTime<chrono::Utc>,
+    last_at: chrono::DateTime<chrono::Utc>,
+}
+
+async fn clients(State(state): State<AppState>, headers: HeaderMap) -> AppResult<Json<Vec<ClientContact>>> {
+    super::auth::check_site_secret(&headers)?;
+    let contacts = sqlx::query_as::<_, ClientContact>(
+        "SELECT c.phone, c.name, MIN(s.sale_date) AS first_at, MAX(s.sale_date) AS last_at \
+         FROM clients c JOIN organizations o ON o.id=c.organization_id \
+         JOIN sales s ON s.client_id=c.id AND s.organization_id=c.organization_id AND s.deleted_at IS NULL \
+         WHERE o.external_id='wow-my-eyes' AND c.deleted_at IS NULL AND c.phone<>'' \
+         GROUP BY c.id ORDER BY MAX(s.sale_date) DESC",
+    ).fetch_all(&state.pool).await?;
+    Ok(Json(contacts))
 }
 
 #[derive(Deserialize)]
@@ -82,9 +103,9 @@ fn site_email(login: &str) -> String {
     format!("{}@staff.site", login.trim().to_lowercase())
 }
 
-/// Автозакрытие смен новых филиалов сайта: в 06:00, а не в полночь — ночные продажи остаются в смене открытия
+/// Кассовые смены сайта заканчиваются в полночь по часовому поясу филиала.
 /// (граница рабочего дня та же, что у кассы и у выгрузки `/api/site/sales`). Потом можно поменять в настройках филиала.
-const SITE_AUTO_CLOSE: &str = "06:00";
+const SITE_AUTO_CLOSE: &str = "00:00";
 
 /// Способы оплаты, нужные для сверки с кассой (помимо «Наличные», «QR», «Терминал» по умолчанию).
 const SITE_METHODS: &[(&str, &str)] = &[("Перевод", "transfer"), ("Сертификат", "cert")];
@@ -135,7 +156,8 @@ async fn sync(State(state): State<AppState>, headers: HeaderMap, Json(dto): Json
             .await?;
         let id = match row {
             Some((id,)) => {
-                sqlx::query("UPDATE stores SET name=$2, deleted_at=NULL WHERE id=$1").bind(id).bind(st.name.trim()).execute(&mut *tx).await?;
+                sqlx::query("UPDATE stores SET name=$2, deleted_at=NULL, auto_close_time=$3 WHERE id=$1")
+                    .bind(id).bind(st.name.trim()).bind(SITE_AUTO_CLOSE).execute(&mut *tx).await?;
                 id
             }
             None => {

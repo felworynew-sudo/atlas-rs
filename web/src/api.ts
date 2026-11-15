@@ -267,8 +267,13 @@ export interface PermissionDef { key: string; title: string; module: string | nu
 export interface StaffUser { id: string; email: string; name: string; roleId: string; roleKey: string; roleName: string; storeIds: string[] }
 export interface SaleItem { id: string; productId: string | null; name: string; qty: number; price: number; returnedQty: number }
 export interface Sale {
+  frameNumbers: string;
+  orderKind: string;
+  revision: string;
+  canEditAmounts: boolean;
   id: string;
   storeId: string;
+  userId: string;
   userName: string;
   clientId: string | null;
   paymentMethodId: string | null;
@@ -311,6 +316,7 @@ export interface ShiftTotals {
 }
 export interface Shift {
   id: string;
+  revision: string;
   storeId: string;
   openedAt: string;
   closedAt: string | null;

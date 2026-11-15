@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { setCurrency } from './money';
 import { api, getToken, setToken, type Org, type Store, type UserView } from './api';
 
@@ -34,8 +34,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [org, setOrg] = useState<Org | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [storeId, setStoreIdState] = useState<string | null>(null);
+  const initialStoreName = useRef<string | undefined>(undefined);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (preferredStoreName?: string) => {
     const [me, o, st] = await Promise.all([api<UserView>('/auth/me'), api<Org>('/organizations'), api<Store[]>('/stores')]);
     const mine = st.filter((s) => me.roleKey === 'admin' || me.permissions.includes('settings.other_stores') || me.storeIds.includes(s.id));
     setCurrency(o.currency ?? 'RUB', o.priceDecimals ?? 2);
@@ -43,12 +44,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setOrg(o);
     setStores(mine);
     let saved: string | null = null;
+    const preferredStore = preferredStoreName ? mine.find((s) => s.name === preferredStoreName) : undefined;
     try {
+      if (preferredStore) localStorage.setItem(STORE_KEY, preferredStore.id);
       saved = localStorage.getItem(STORE_KEY);
     } catch {
       /* без хранилища */
     }
-    setStoreIdState(mine.find((s) => s.id === saved)?.id ?? mine[0]?.id ?? null);
+    setStoreIdState(preferredStore?.id ?? mine.find((s) => s.id === saved)?.id ?? mine[0]?.id ?? null);
   }, []);
 
   const logout = useCallback(() => {
@@ -61,22 +64,46 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Вход с корпоративного сайта: сайт передаёт токен в адресе вида /#sso=<токен>; сразу убираем его из адреса.
-    const m = /[#&]sso=([^&]+)/.exec(window.location.hash);
-    if (m) {
-      setToken(decodeURIComponent(m[1]));
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    const sso = params.get('sso');
+    if (sso) {
+      setToken(sso);
+      initialStoreName.current = params.get('store') ?? undefined;
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
     if (!getToken()) {
       setReady(true);
       return;
     }
-    load().catch(logout).finally(() => setReady(true));
+    load(initialStoreName.current).catch(logout).finally(() => setReady(true));
   }, [load, logout]);
 
   useEffect(() => {
     window.addEventListener('atlas:unauthorized', logout);
     return () => window.removeEventListener('atlas:unauthorized', logout);
   }, [logout]);
+
+  // Внутри дев-панели сайта (iframe): список филиалов уходит наверх, там один выбор «сотрудник · филиал»,
+  // а выбранный филиал приходит обратно сообщением. Сам Атлас в рамке свой выбор филиала не показывает.
+  useEffect(() => {
+    if (window.parent === window || !user) return;
+    window.parent.postMessage({ type: 'atlas:state', stores: stores.map((x) => ({ id: x.id, name: x.name })), storeId }, window.location.origin);
+  }, [user, stores, storeId]);
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const d = e.data as { type?: string; id?: unknown } | null;
+      if (e.origin !== window.location.origin || e.source !== window.parent || d?.type !== 'atlas:set-store' || typeof d.id !== 'string') return;
+      if (!stores.some((x) => x.id === d.id)) return;
+      setStoreIdState(d.id);
+      try {
+        localStorage.setItem(STORE_KEY, d.id);
+      } catch {
+        /* без хранилища */
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [stores]);
 
   const value = useMemo<Session>(
     () => ({

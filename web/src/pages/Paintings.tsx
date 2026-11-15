@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { PaintingForm, todayRu, type PaintingDraft } from '../PaintingForm';
 import { siteApi, type Painting, type PaintingOptions } from '../siteApi';
 import { useSession } from '../session';
-import { Header, Modal, Spinner, useLoad, useToast } from '../ui';
+import { Header, Modal, Spinner, useLoad, useToast, copyText } from '../ui';
 
 /** Сотрудник в формате таблицы: «Кирилл 0» (имя и этаж точки). */
 export function staffLabel(name: string, storeName: string): string {
@@ -51,7 +51,20 @@ export default function Paintings() {
                 <div className="title">{p.type || '—'} · {p.size || 'размер ?'} {p.telegram && <span className="muted">· {p.telegram}</span>}</div>
                 <div className="sub">{p.date} · {p.staff || 'сотрудник ?'}{p.payment ? ` · ${p.payment}` : ''}{p.tracker && !p.tracker.startsWith('#') ? ` · трекер ${p.tracker}` : ''}</div>
               </div>
-              <span className={`chip small${/готов/i.test(p.status) ? '' : ' active'}`} style={{ pointerEvents: 'none' }}>{p.status || 'без статуса'}</span>
+              {p.tracker && !p.tracker.startsWith('#') && (
+                <button
+                  className="chip small"
+                  style={{ marginRight: 8 }}
+                  title={`https://wow-my-eyes.ru/track/${p.tracker}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void copyText(`https://wow-my-eyes.ru/track/${p.tracker}`).then((ok) => say(ok ? 'Ссылка на трекер скопирована' : 'Не удалось скопировать'));
+                  }}
+                >
+                  Ссылка
+                </button>
+              )}
+              <span className={`chip small painting-status${/готов/i.test(p.status) ? '' : ' active'}`}>{p.status || 'без статуса'}</span>
             </div>
           </div>
         ))}

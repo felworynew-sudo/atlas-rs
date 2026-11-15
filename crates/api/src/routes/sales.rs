@@ -23,7 +23,8 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/", get(list).post(create)).route("/{id}", get(one).delete(remove)).route("/{id}/returns", post(create_return))
+    Router::new().route("/", get(list).post(create)).route("/{id}", get(one).patch(update).delete(remove))
+        .route("/{id}/staff", get(staff_for_sale)).route("/{id}/returns", post(create_return))
 }
 
 #[derive(Serialize, FromRow)]
@@ -64,6 +65,10 @@ pub struct SaleView {
     pub returned_amount: f64,
     pub delivery: bool,
     pub comment: String,
+    pub frame_numbers: String,
+    pub order_kind: String,
+    pub revision: String,
+    pub can_edit_amounts: bool,
     pub sale_date: DateTime<Utc>,
     pub punch_card_reduction: f64,
     pub delivery_address: String,
@@ -80,7 +85,12 @@ const SELECT_SALES: &str = "SELECT s.id, s.store_id, s.user_id, u.name AS user_n
      s.markup_amount::float8 AS markup_amount, s.discount_amount::float8 AS discount_amount, \
      s.discount_percentage::float8 AS discount_percentage, s.bonus_reduction::float8 AS bonus_reduction, \
      s.bonus_accumulation::float8 AS bonus_accumulation, s.total::float8 AS total, s.cost_total::float8 AS cost_total, \
-     s.returned_amount::float8 AS returned_amount, s.delivery, s.comment, s.sale_date, \
+     s.returned_amount::float8 AS returned_amount, s.delivery, s.comment, s.frame_numbers, s.order_kind, \
+     s.xmin::text AS revision, s.sale_date, \
+     (s.returned_amount=0 AND s.bonus_reduction=0 AND s.bonus_accumulation=0 AND s.punch_delta=0 \
+       AND s.punch_card_reduction=0 AND s.markup_amount=0 AND s.discount_amount=0 \
+       AND s.second_payment_method_id IS NULL \
+       AND NOT EXISTS (SELECT 1 FROM sale_returns r WHERE r.sale_id=s.id)) AS can_edit_amounts, \
      s.punch_card_reduction::float8 AS punch_card_reduction, s.delivery_address, s.delivery_phone, \
      s.delivery_price::float8 AS delivery_price, s.order_id \
      FROM sales s JOIN users u ON u.id = s.user_id \
@@ -183,6 +193,9 @@ pub struct ItemDto {
 #[serde(rename_all = "camelCase")]
 pub struct CreateSaleDto {
     pub store_id: Uuid,
+    /// кассир подтвердил продажу товара, отмеченного как отсутствующий на складе («Я знаю, что делаю»)
+    #[serde(default)]
+    pub allow_unavailable: bool,
     pub client_id: Option<Uuid>,
     pub items: Vec<ItemDto>,
     pub price_type_id: Option<Uuid>,
@@ -198,7 +211,11 @@ pub struct CreateSaleDto {
     #[serde(default)]
     pub delivery: bool,
     pub comment: Option<String>,
+    pub frame_numbers: Option<String>,
+    pub order_kind: Option<String>,
     pub sale_date: Option<DateTime<Utc>>,
+    pub shift_id: Option<Uuid>,
+    pub user_id: Option<Uuid>,
     pub idempotency_key: Option<String>,
     pub delivery_address: Option<String>,
     pub delivery_phone: Option<String>,
@@ -217,6 +234,57 @@ struct Line {
     qty: f64,
     price: f64,
     cost: f64,
+}
+
+async fn resolve_lines(pool: &PgPool, ctx: &AuthContext, store_id: Uuid, items: &[ItemDto], allow_unavailable: bool) -> AppResult<Vec<Line>> {
+    let pids: Vec<Uuid> = items.iter().filter_map(|i| i.product_id).collect();
+    let prods: Vec<(Uuid, String, bool, bool, bool, f64)> = sqlx::query_as(
+        "SELECT p.id, p.name, p.is_service, p.allow_fractional, COALESCE(ps.active, true), COALESCE(ps.sale_price, 0)::float8 \
+         FROM products p LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $3 \
+         WHERE p.organization_id=$1 AND p.deleted_at IS NULL AND p.id = ANY($2)",
+    )
+    .bind(ctx.org_id)
+    .bind(&pids)
+    .bind(store_id)
+    .fetch_all(pool)
+    .await?;
+    let pmap: HashMap<Uuid, _> = prods.into_iter().map(|p| (p.0, p)).collect();
+    let costs = cost_nodes(pool, ctx.org_id).await?;
+
+    let mut lines: Vec<Line> = Vec::new();
+    for it in items {
+        if !(it.qty.is_finite() && it.qty > 0.0) {
+            return Err(AppError::BadRequest("Количество должно быть больше нуля".into()));
+        }
+        match it.product_id {
+            Some(pid) => {
+                let (_, name, service, fractional, active, store_price) =
+                    pmap.get(&pid).ok_or_else(|| AppError::BadRequest("Товар не найден".into()))?;
+                if !*active && !allow_unavailable {
+                    return Err(AppError::BadRequest(format!("Товар «{name}» отмечен как отсутствующий на складе")));
+                }
+                if !*fractional && it.qty.fract() != 0.0 {
+                    return Err(AppError::BadRequest(format!("Количество «{name}» должно быть целым")));
+                }
+                let price = it.price.unwrap_or(*store_price);
+                if !(price.is_finite() && price >= 0.0) {
+                    return Err(AppError::BadRequest("Цена не может быть отрицательной".into()));
+                }
+                lines.push(Line { service: *service, product_id: Some(pid), name: name.clone(), qty: it.qty, price, cost: unit_cost(&costs, pid) });
+            }
+            None => {
+                ctx.require("sale.custom_product")?;
+                let name = it.name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+                let name = name.ok_or_else(|| AppError::BadRequest("Введите название позиции".into()))?;
+                let price = it.price.ok_or_else(|| AppError::BadRequest("Укажите цену позиции".into()))?;
+                if !(price.is_finite() && price >= 0.0) {
+                    return Err(AppError::BadRequest("Цена не может быть отрицательной".into()));
+                }
+                lines.push(Line { service: false, product_id: None, name: name.to_string(), qty: it.qty, price, cost: it.purchase_price.unwrap_or(0.0).max(0.0) });
+            }
+        }
+    }
+    Ok(lines)
 }
 
 async fn list_item_exists(pool: &PgPool, org: Uuid, kind: &str, id: Uuid) -> AppResult<Value> {
@@ -273,68 +341,9 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
         }
         None => None,
     };
-    let shift_id: Option<Uuid> = if ctx.module_enabled(atlas_domain::modules::Module::Shifts) {
-        let open: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM shifts WHERE store_id=$1 AND closed_at IS NULL")
-            .bind(dto.store_id)
-            .fetch_optional(&s.pool)
-            .await?;
-        if open.is_none() && !ctx.can("sale.without_shift") {
-            return Err(AppError::BadRequest("Откройте смену, чтобы оформить продажу".into()));
-        }
-        open.map(|o| o.0)
-    } else {
-        None
-    };
-
     // позиции
-    let pids: Vec<Uuid> = dto.items.iter().filter_map(|i| i.product_id).collect();
-    let prods: Vec<(Uuid, String, bool, bool, bool, f64)> = sqlx::query_as(
-        "SELECT p.id, p.name, p.is_service, p.allow_fractional, COALESCE(ps.active, true), COALESCE(ps.sale_price, 0)::float8 \
-         FROM products p LEFT JOIN product_stores ps ON ps.product_id = p.id AND ps.store_id = $3 \
-         WHERE p.organization_id=$1 AND p.deleted_at IS NULL AND p.id = ANY($2)",
-    )
-    .bind(ctx.org_id)
-    .bind(&pids)
-    .bind(dto.store_id)
-    .fetch_all(&s.pool)
-    .await?;
-    let pmap: HashMap<Uuid, _> = prods.into_iter().map(|p| (p.0, p)).collect();
-    let costs = cost_nodes(&s.pool, ctx.org_id).await?;
+    let lines = resolve_lines(&s.pool, &ctx, dto.store_id, &dto.items, dto.allow_unavailable).await?;
     let snodes = ledger::stock_nodes(&s.pool, ctx.org_id).await?;
-
-    let mut lines: Vec<Line> = Vec::new();
-    for it in &dto.items {
-        if !(it.qty.is_finite() && it.qty > 0.0) {
-            return Err(AppError::BadRequest("Количество должно быть больше нуля".into()));
-        }
-        match it.product_id {
-            Some(pid) => {
-                let (_, name, service, fractional, active, store_price) =
-                    pmap.get(&pid).ok_or_else(|| AppError::BadRequest("Товар не найден".into()))?;
-                if !*active {
-                    return Err(AppError::BadRequest(format!("Товар «{name}» недоступен в этом филиале")));
-                }
-                if !*fractional && it.qty.fract() != 0.0 {
-                    return Err(AppError::BadRequest(format!("Количество «{name}» должно быть целым")));
-                }
-                let price = it.price.unwrap_or(*store_price);
-                if !(price.is_finite() && price >= 0.0) {
-                    return Err(AppError::BadRequest("Цена не может быть отрицательной".into()));
-                }
-                lines.push(Line { service: *service, product_id: Some(pid), name: name.clone(), qty: it.qty, price, cost: unit_cost(&costs, pid) });
-            }
-            None => {
-                ctx.require("sale.custom_product")?;
-                let name = it.name.as_deref().map(str::trim).filter(|n| !n.is_empty());
-                let name = name.ok_or_else(|| AppError::BadRequest("Введите название позиции".into()))?;
-                let price = it.price.ok_or_else(|| AppError::BadRequest("Укажите цену позиции".into()))?;
-                if !(price.is_finite() && price >= 0.0) {
-                    return Err(AppError::BadRequest("Цена не может быть отрицательной".into()));
-                }
-                lines.push(Line { service: false, product_id: None, name: name.to_string(), qty: it.qty, price, cost: it.purchase_price.unwrap_or(0.0).max(0.0) });
-            }
-        }
-    }
     let subtotal: f64 = lines.iter().map(|l| l.qty * l.price).sum();
     let cost_total: f64 = lines.iter().map(|l| l.qty * l.cost).sum();
 
@@ -389,6 +398,34 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
     };
 
     let mut tx = s.pool.begin().await?;
+    let sale_date = dto.sale_date.unwrap_or_else(Utc::now);
+    let seller_id = dto.user_id.unwrap_or(ctx.user_id);
+    if dto.shift_id.is_some() {
+        ctx.require("shift.edit_data")?;
+    } else if seller_id != ctx.user_id {
+        return Err(AppError::Forbidden);
+    }
+    let shift_id = if ctx.module_enabled(atlas_domain::modules::Module::Shifts) {
+        let id: Uuid = sqlx::query_scalar(
+            "SELECT sh.id FROM shifts sh JOIN stores st ON st.id=sh.store_id \
+             WHERE sh.organization_id=$1 AND sh.store_id=$2 \
+               AND (sh.opened_at AT TIME ZONE st.timezone)::date=($3::timestamptz AT TIME ZONE st.timezone)::date \
+               AND (CASE WHEN $4::uuid IS NULL THEN sh.closed_at IS NULL AND \
+                           (st.external_id IS NULL OR ($3::timestamptz AT TIME ZONE st.timezone)::date=(now() AT TIME ZONE st.timezone)::date) \
+                         ELSE sh.id=$4 AND sh.closed_at IS NOT NULL \
+                           AND EXISTS (SELECT 1 FROM shift_staff ss WHERE ss.shift_id=sh.id AND ss.user_id=$5) END) \
+             FOR UPDATE OF sh",
+        ).bind(ctx.org_id).bind(dto.store_id).bind(sale_date).bind(dto.shift_id).bind(seller_id)
+            .fetch_optional(&mut *tx).await?
+            .ok_or_else(|| AppError::BadRequest(if dto.shift_id.is_some() {
+                "Выберите сотрудника этой закрытой смены и укажите дату смены".into()
+            } else {
+                "Для продажи сначала откройте смену этого филиала на дату продажи".into()
+            }))?;
+        Some(id)
+    } else {
+        None
+    };
 
     // клиент и бонусы
     let bonus_reduction = dto.bonus_reduction.unwrap_or(0.0);
@@ -476,14 +513,14 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
         "INSERT INTO sales (id, organization_id, store_id, user_id, client_id, purchase_method_id, payment_method_id, \
          second_payment_method_id, first_payment_value, second_payment_value, subtotal, markup_amount, discount_amount, \
          discount_percentage, bonus_reduction, bonus_accumulation, total, cost_total, delivery, comment, idempotency_key, sale_date, \
-         punch_card_reduction, punch_delta, delivery_address, delivery_phone, delivery_price, order_id, import_batch_id, shift_id, price_type_id) \
+         punch_card_reduction, punch_delta, delivery_address, delivery_phone, delivery_price, order_id, import_batch_id, shift_id, price_type_id, frame_numbers, order_kind) \
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::float8,$10::float8,$11::float8,$12::float8,$13::float8,$14::float8,$15::float8,\
-         $16::float8,$17::float8,$18::float8,$19,$20,$21,COALESCE($22, now()),$23::float8,$24,$25,$26,$27::float8,$28,$29,$30,$31)",
+         $16::float8,$17::float8,$18::float8,$19,$20,$21,COALESCE($22, now()),$23::float8,$24,$25,$26,$27::float8,$28,$29,$30,$31,$32,$33)",
     )
     .bind(sale_id)
     .bind(ctx.org_id)
     .bind(dto.store_id)
-    .bind(ctx.user_id)
+    .bind(seller_id)
     .bind(dto.client_id)
     .bind(purchase_id)
     .bind(payment_id)
@@ -501,7 +538,7 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
     .bind(dto.delivery)
     .bind(dto.comment.unwrap_or_default())
     .bind(dto.idempotency_key.filter(|k| !k.is_empty()))
-    .bind(dto.sale_date)
+    .bind(sale_date)
     .bind(t.punch_card_reduction)
     .bind(punches_after - punches_before)
     .bind(dto.delivery_address.unwrap_or_default())
@@ -511,6 +548,8 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
     .bind(dto.import_batch_id)
     .bind(shift_id)
     .bind(price_type)
+    .bind(dto.frame_numbers.unwrap_or_default().trim().chars().take(100).collect::<String>())
+    .bind(dto.order_kind.unwrap_or_default().trim().chars().take(60).collect::<String>())
     .execute(&mut *tx)
     .await?;
 
@@ -549,8 +588,153 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
             .await?;
     }
     settle_sale(&mut tx, ctx.org_id, ctx.user_id, sale_id, dto.store_id, 1.0, "sale").await?;
+    if let Some(id) = dto.shift_id {
+        crate::routes::shifts::refresh_closed_shift(&mut tx, ctx.org_id, id).await?;
+    }
     tx.commit().await?;
     created_view(&s.pool, ctx.org_id, sale_id).await
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UpdateSaleDto {
+    revision: String,
+    user_id: Option<Uuid>,
+    sale_date: DateTime<Utc>,
+    comment: String,
+    frame_numbers: String,
+    order_kind: String,
+    payment_method_id: Option<Uuid>,
+    items: Option<Vec<ItemDto>>,
+}
+
+#[derive(Serialize, FromRow)]
+struct SaleStaff {
+    id: Uuid,
+    name: String,
+}
+
+const SELECT_SALE_STAFF: &str =
+    "SELECT u.id, u.name FROM users u JOIN roles r ON r.id=u.role_id AND r.organization_id=u.organization_id \
+     WHERE u.organization_id=$1 AND u.active AND r.deleted_at IS NULL \
+       AND (r.key='admin' OR 'sale.new'=ANY(r.permissions)) \
+       AND (r.key='admin' OR 'settings.other_stores'=ANY(r.permissions) OR $2=ANY(u.store_ids)) \
+       AND ($3::uuid IS NULL OR u.id=$3) ORDER BY u.name, u.id FOR SHARE OF u, r";
+
+async fn staff_for_sale(
+    State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>,
+) -> AppResult<Json<Vec<SaleStaff>>> {
+    ctx.require("sale.history")?;
+    ctx.require("sale.new")?;
+    let store_id: Uuid = sqlx::query_scalar("SELECT store_id FROM sales WHERE id=$1 AND organization_id=$2 AND deleted_at IS NULL")
+        .bind(id).bind(ctx.org_id).fetch_optional(&s.pool).await?
+        .ok_or_else(|| AppError::NotFound("Продажа не найдена".into()))?;
+    check_store(&s.pool, &ctx, store_id).await?;
+    let staff = sqlx::query_as(SELECT_SALE_STAFF)
+        .bind(ctx.org_id).bind(store_id).bind(None::<Uuid>).fetch_all(&s.pool).await?;
+    Ok(Json(staff))
+}
+
+async fn update(
+    State(s): State<AppState>, ctx: AuthContext, Path(id): Path<Uuid>, Json(dto): Json<UpdateSaleDto>,
+) -> AppResult<Json<SaleView>> {
+    ctx.require("sale.history")?;
+    ctx.require("sale.new")?;
+    let sale = created_view(&s.pool, ctx.org_id, id).await?.0;
+    check_store(&s.pool, &ctx, sale.store_id).await?;
+    let payment_changed = dto.payment_method_id != sale.payment_method_id;
+    if (payment_changed || dto.items.is_some()) && !sale.can_edit_amounts {
+        return Err(AppError::BadRequest("Сумму, позиции и оплату этого чека менять нельзя: есть возврат, скидка, бонусы или смешанная оплата".into()));
+    }
+    if payment_changed {
+        let payment = dto.payment_method_id.ok_or_else(|| AppError::BadRequest("Выберите способ оплаты".into()))?;
+        list_item_exists(&s.pool, ctx.org_id, "payment_methods", payment).await?;
+    }
+    let lines = if let Some(items) = dto.items {
+        if items.is_empty() {
+            return Err(AppError::BadRequest("В продаже должна остаться хотя бы одна позиция".into()));
+        }
+        Some(resolve_lines(&s.pool, &ctx, sale.store_id, &items, false).await?)
+    } else {
+        None
+    };
+    let stock_nodes = if lines.is_some() {
+        ledger::stock_nodes(&s.pool, ctx.org_id).await?
+    } else {
+        HashMap::new()
+    };
+    let mut tx = s.pool.begin().await?;
+    let locked: Option<(String, bool, Option<Uuid>)> = sqlx::query_as(
+        "SELECT s.xmin::text, s.shift_id IS NULL OR (s.sale_date AT TIME ZONE st.timezone)::date = ($3::timestamptz AT TIME ZONE st.timezone)::date, s.shift_id \
+         FROM sales s JOIN stores st ON st.id=s.store_id WHERE s.id=$1 AND s.organization_id=$2 AND s.deleted_at IS NULL FOR UPDATE OF s",
+    )
+    .bind(id).bind(ctx.org_id).bind(dto.sale_date).fetch_optional(&mut *tx).await?;
+    let (revision, correct_day, shift_id) = locked.ok_or_else(|| AppError::NotFound("Продажа не найдена".into()))?;
+    if revision != dto.revision || revision != sale.revision {
+        return Err(AppError::Conflict("Продажа изменилась. Откройте её заново перед сохранением".into()));
+    }
+    if !correct_day {
+        return Err(AppError::BadRequest("Для продажи, связанной со сменой, можно изменить время в пределах того же дня".into()));
+    }
+    let seller_id = dto.user_id.unwrap_or(sale.user_id);
+    let new_seller = if seller_id != sale.user_id {
+        Some(sqlx::query_as::<_, SaleStaff>(SELECT_SALE_STAFF)
+            .bind(ctx.org_id).bind(sale.store_id).bind(seller_id).fetch_optional(&mut *tx).await?
+            .ok_or_else(|| AppError::BadRequest("Выберите действующего сотрудника с доступом к продажам в этом филиале".into()))?)
+    } else {
+        None
+    };
+
+    if lines.is_some() || payment_changed {
+        crate::routes::finance::reverse_tx(&mut tx, id, "sale", ctx.user_id).await?;
+    }
+    if let Some(lines) = &lines {
+        // Сторнируем прежний чистый эффект. Движения сохраняются в журнале;
+        // при следующих правках или удалении учитывается их итог.
+        let net: Vec<(Uuid, f64)> = sqlx::query_as(
+            "SELECT product_id, SUM(delta)::float8 FROM product_movements WHERE ref_id=$1 AND kind='sale' GROUP BY product_id ORDER BY product_id",
+        ).bind(id).fetch_all(&mut *tx).await?;
+        for (product, qty) in net {
+            if qty.abs() > 1e-9 {
+                ledger::apply(&mut tx, ctx.org_id, sale.store_id, product, "sale", -qty, Some(id), ctx.user_id).await?;
+            }
+        }
+        sqlx::query("DELETE FROM sale_items WHERE sale_id=$1").bind(id).execute(&mut *tx).await?;
+        for line in lines {
+            sqlx::query("INSERT INTO sale_items (id,sale_id,product_id,name,qty,price,cost_price) VALUES ($1,$2,$3,$4,$5::float8,$6::float8,$7::float8)")
+                .bind(Uuid::new_v4()).bind(id).bind(line.product_id).bind(&line.name)
+                .bind(line.qty).bind(line.price).bind(line.cost).execute(&mut *tx).await?;
+            if let Some(product) = line.product_id {
+                for (ingredient, qty) in stock_effects(&stock_nodes, product, line.qty) {
+                    let after = ledger::apply(&mut tx, ctx.org_id, sale.store_id, ingredient, "sale", -qty, Some(id), ctx.user_id).await?;
+                    if after < -1e-9 && !ctx.can("sale.out_of_stock") {
+                        return Err(AppError::BadRequest(format!("Недостаточно товара для позиции «{}»", line.name)));
+                    }
+                }
+            }
+        }
+    }
+    let subtotal = lines.as_ref().map(|lines| round2(lines.iter().map(|l| l.qty * l.price).sum())).unwrap_or(sale.subtotal);
+    let cost_total = lines.as_ref().map(|lines| lines.iter().map(|l| l.qty * l.cost).sum()).unwrap_or(sale.cost_total);
+    let total = if lines.is_some() { round2(subtotal + sale.delivery_price) } else { sale.total };
+    sqlx::query("UPDATE sales SET sale_date=$2, comment=$3, frame_numbers=$4, order_kind=$5, payment_method_id=$6, subtotal=$7::float8, total=$8::float8, cost_total=$9::float8, user_id=$10 WHERE id=$1")
+        .bind(id).bind(dto.sale_date).bind(dto.comment.trim())
+        .bind(dto.frame_numbers.trim().chars().take(100).collect::<String>())
+        .bind(dto.order_kind.trim().chars().take(60).collect::<String>())
+        .bind(dto.payment_method_id).bind(subtotal).bind(total).bind(cost_total).bind(seller_id).execute(&mut *tx).await?;
+    if lines.is_some() || payment_changed {
+        settle_sale(&mut tx, ctx.org_id, ctx.user_id, id, sale.store_id, 1.0, "sale").await?;
+        if let Some(id) = shift_id {
+            crate::routes::shifts::refresh_closed_shift(&mut tx, ctx.org_id, id).await?;
+        }
+    }
+    tx.commit().await?;
+    let mut event = format!("Исправлена продажа {}", &id.simple().to_string()[..8]);
+    if let Some(seller) = new_seller {
+        event.push_str(&format!(": сотрудник «{}» → «{}»", sale.user_name, seller.name));
+    }
+    crate::events::log(&s.pool, ctx.org_id, Some(sale.store_id), ctx.user_id, "sale_updated", &event).await;
+    created_view(&s.pool, ctx.org_id, id).await
 }
 
 /// Ответ на создание не зависит от права «История продаж».

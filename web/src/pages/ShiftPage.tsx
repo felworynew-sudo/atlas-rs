@@ -5,6 +5,7 @@ import { fmtDateTime } from '../dates';
 import { Icon } from '../Icon';
 import { rub } from '../money';
 import { Line } from '../reportKit';
+import { SaleEntry, saleDay } from '../SaleEntry';
 import { useSession } from '../session';
 import { Header, Modal, Spinner, StoreChips, useLoad, useToast } from '../ui';
 
@@ -33,6 +34,8 @@ export default function ShiftPage() {
   const [opening, setOpening] = useState('');
   const [modal, setModal] = useState<null | 'cashbox' | 'close' | 'staff'>(null);
   const [viewing, setViewing] = useState<Shift | null>(null);
+  const [report, setReport] = useState<Shift | null>(null);
+  const [closedAction, setClosedAction] = useState<'edit' | 'sale' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const reloadAll = () => { current.reload(); history.reload(); };
@@ -135,9 +138,23 @@ export default function ShiftPage() {
       </main>
 
       {modal === 'cashbox' && sh && <CashboxModal shiftId={sh.id} onClose={() => setModal(null)} onDone={() => { setModal(null); reloadAll(); say('Успешно'); }} />}
-      {modal === 'close' && sh && <CloseModal shift={sh} onClose={() => setModal(null)} onDone={() => { setModal(null); reloadAll(); say('Смена закрыта'); }} />}
+      {modal === 'close' && sh && <CloseModal shift={sh} onClose={() => setModal(null)} onDone={(closed) => { setModal(null); reloadAll(); setReport(closed); }} />}
       {modal === 'staff' && sh && <StaffModal shift={sh} onClose={() => setModal(null)} onDone={() => { setModal(null); reloadAll(); }} />}
-      {viewing && <ClosedModal shift={viewing} latest={closed[0]?.id === viewing.id} onClose={() => setViewing(null)} onChanged={() => { setViewing(null); reloadAll(); }} />}
+      {viewing && !closedAction && <ClosedModal shift={viewing} latest={closed[0]?.id === viewing.id}
+        onEdit={() => setClosedAction('edit')} onSale={() => setClosedAction('sale')}
+        onClose={() => setViewing(null)} onChanged={() => { setViewing(null); reloadAll(); }} />}
+      {viewing && closedAction === 'edit' && <CloseModal shift={viewing} editing onClose={() => setClosedAction(null)}
+        onDone={(updated) => { setViewing(updated); setClosedAction(null); reloadAll(); say('Смена обновлена'); }} />}
+      {viewing && closedAction === 'sale' && <Modal onClose={() => setClosedAction(null)}>
+        <SaleEntry storeId={viewing.storeId} day={saleDay(new Date(viewing.openedAt))} closedShift={viewing}
+          onCancel={() => setClosedAction(null)} onSaved={() => {
+            setClosedAction(null);
+            setViewing(null);
+            reloadAll();
+            say('Продажа внесена в смену');
+          }} />
+      </Modal>}
+      {report && <ReportModal shift={report} by={s.user?.name ?? ''} onClose={() => setReport(null)} />}
       {toast}
     </>
   );
@@ -176,32 +193,48 @@ function CashboxModal({ shiftId, onClose, onDone }: { shiftId: string; onClose: 
 }
 
 /** «Закрытие смены»: фактическая сумма наличных и по каждому безналичному способу; недосдача считается сервером. */
-function CloseModal({ shift, onClose, onDone }: { shift: Shift; onClose: () => void; onDone: () => void }) {
+function CloseModal({ shift, editing = false, onClose, onDone }: { shift: Shift; editing?: boolean; onClose: () => void; onDone: (closed: Shift) => void }) {
   const noncash = shift.totals.byMethod.filter((m) => m.kind !== 'cash');
-  const [cash, setCash] = useState(String(shift.totals.expectedCash));
-  const [methods, setMethods] = useState<Record<string, string>>(Object.fromEntries(noncash.map((m) => [m.paymentMethodId, String(m.sales - m.returns)])));
-  const [comment, setComment] = useState('');
+  const [opening, setOpening] = useState(String(shift.openingCash));
+  const [cash, setCash] = useState(String(editing ? shift.actualCash ?? '' : shift.totals.expectedCash));
+  const [methods, setMethods] = useState<Record<string, string>>(Object.fromEntries(noncash.map((m) => [m.paymentMethodId, editing
+    ? String(shift.closeDetails?.find((saved) => saved.paymentMethodId === m.paymentMethodId)?.actual ?? '')
+    : String(m.sales - m.returns)])));
+  const [comment, setComment] = useState(editing ? shift.comment : '');
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   async function save() {
     setError(null);
+    setBusy(true);
     try {
-      await api(`/shifts/${shift.id}/close`, {
+      const url = editing ? `/shifts/${shift.id}` : `/shifts/${shift.id}/close`;
+      const closed = await api<Shift>(url, {
+        method: editing ? 'PATCH' : 'POST',
         body: {
+          revision: editing ? shift.revision : undefined,
+          openingCash: editing ? Number(opening.replace(',', '.')) : undefined,
           actualCash: Number(cash.replace(',', '.')),
-          actualByMethod: noncash.map((m) => ({ paymentMethodId: m.paymentMethodId, amount: Number((methods[m.paymentMethodId] ?? '0').replace(',', '.')) })),
+          actualByMethod: noncash.filter((m) => methods[m.paymentMethodId] !== '').map((m) => ({
+            paymentMethodId: m.paymentMethodId, amount: Number(methods[m.paymentMethodId].replace(',', '.')),
+          })),
           comment,
         },
       });
-      onDone();
+      onDone(closed);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Ошибка');
+    } finally {
+      setBusy(false);
     }
   }
 
   return (
-    <Modal onClose={onClose}>
-      <div className="h2" style={{ marginTop: 0 }}>Закрытие смены</div>
+    <Modal onClose={() => { if (!busy) onClose(); }}>
+      <div className="h2" style={{ marginTop: 0 }}>{editing ? 'Правка закрытой смены' : 'Закрытие смены'}</div>
+      {editing && <label className="field"><span>Наличные — сумма на начало дня</span>
+        <input type="number" min="0" step="any" value={opening} onChange={(e) => setOpening(e.target.value)} />
+      </label>}
       <label className="field"><span>Наличные — сумма на конец дня (по расчёту {rub(shift.totals.expectedCash)})</span>
         <input type="number" min="0" step="any" value={cash} onChange={(e) => setCash(e.target.value)} />
       </label>
@@ -212,7 +245,48 @@ function CloseModal({ shift, onClose, onDone }: { shift: Shift; onClose: () => v
       ))}
       <label className="field"><span>Комментарий</span><input type="text" value={comment} onChange={(e) => setComment(e.target.value)} /></label>
       {error && <div className="error" role="alert">{error}</div>}
-      <button className="btn" disabled={cash === ''} onClick={save}>Закрыть</button>
+      <button className="btn" disabled={busy || cash === '' || (editing && opening === '')} onClick={save}>{editing ? 'Сохранить' : 'Закрыть'}</button>
+    </Modal>
+  );
+}
+
+/** Текст отчёта о закрытой смене: кто, когда, выручка, сколько в кассе, наличные и безнал (для экрана и для копирования в чат). */
+function reportLines(shift: Shift, by: string): [string, string][] {
+  const t = shift.totals;
+  const who = shift.staff.map((m) => m.name).join(', ');
+  const rows: [string, string][] = [
+    ['Сотрудник', who || by || '—'],
+    ['Открыта', fmtDateTime(shift.openedAt)],
+    ['Закрыта', fmtDateTime(shift.closedAt as string)],
+    ['Выручка', `${rub(t.sales)} (чеков ${t.checks})`],
+    ['В кассе', rub(shift.actualCash ?? 0)],
+    ['Наличными', rub(t.cashSales)],
+    ['Безналом', rub(t.nonCashSales)],
+  ];
+  const noncash = t.byMethod.filter((m) => m.kind !== 'cash' && (m.sales !== 0 || m.returns !== 0));
+  if (noncash.length > 1) for (const m of noncash) rows.push([`  ${m.name}`, rub(m.sales - m.returns)]);
+  if ((shift.diff ?? 0) !== 0) rows.push([(shift.diff ?? 0) < 0 ? 'Недосдача' : 'Излишек', rub(shift.diff ?? 0)]);
+  return rows;
+}
+
+/** После закрытия смены сразу показываем отчёт — его можно скопировать и отправить в чат. */
+function ReportModal({ shift, by, onClose }: { shift: Shift; by: string; onClose: () => void }) {
+  const rows = reportLines(shift, by);
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    const text = ['Смена закрыта', ...rows.map(([k, v]) => `${k}: ${v}`)].join(String.fromCharCode(10));
+    navigator.clipboard.writeText(text).then(() => setCopied(true)).catch(() => undefined);
+  };
+  return (
+    <Modal onClose={onClose}>
+      <div className="h2" style={{ marginTop: 0 }}>Смена закрыта</div>
+      <div className="card">
+        {rows.map(([k, v], i) => <Line key={i} bold={k === 'В кассе'} label={k} value={v} tone={k === 'Недосдача' ? 'bad' : undefined} />)}
+      </div>
+      <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+        <button className="btn light" onClick={copy}>{copied ? 'Скопировано' : 'Скопировать отчёт'}</button>
+        <button className="btn" onClick={onClose}>Готово</button>
+      </div>
     </Modal>
   );
 }
@@ -234,7 +308,9 @@ function StaffModal({ shift, onClose, onDone }: { shift: Shift; onClose: () => v
   );
 }
 
-function ClosedModal({ shift, latest, onClose, onChanged }: { shift: Shift; latest: boolean; onClose: () => void; onChanged: () => void }) {
+function ClosedModal({ shift, latest, onClose, onChanged, onEdit, onSale }: {
+  shift: Shift; latest: boolean; onClose: () => void; onChanged: () => void; onEdit: () => void; onSale: () => void;
+}) {
   const s = useSession();
   const [error, setError] = useState<string | null>(null);
   return (
@@ -242,6 +318,8 @@ function ClosedModal({ shift, latest, onClose, onChanged }: { shift: Shift; late
       <div className="h2" style={{ marginTop: 0 }}>Закрытая смена</div>
       <Line label="Открытие смены" value={fmtDateTime(shift.openedAt)} />
       <Line label="Закрытие смены" value={fmtDateTime(shift.closedAt as string)} />
+      <Line label={`Продажи (${shift.totals.checks})`} value={rub(shift.totals.sales)} />
+      {shift.totals.byUser.map((person) => <Line key={person.userId} label={`${person.name} (${person.checks})`} value={rub(person.sales)} />)}
       <div className="day">Наличные — расчёт и факт</div>
       <Line label="По расчёту" value={rub(shift.expectedCash ?? 0)} />
       <Line label="Факт" value={rub(shift.actualCash ?? 0)} />
@@ -249,6 +327,10 @@ function ClosedModal({ shift, latest, onClose, onChanged }: { shift: Shift; late
       <Line bold label="Недосдача / излишек" value={rub(shift.diff ?? 0)} tone={(shift.diff ?? 0) < 0 ? 'bad' : undefined} />
       {shift.comment && <div className="muted" style={{ marginTop: 8 }}>{shift.comment}</div>}
       {error && <div className="error" role="alert">{error}</div>}
+      {s.can('shift.edit_data') && <div className="row wrap" style={{ marginTop: 16 }}>
+        <button className="btn inline" onClick={onEdit}>Исправить данные смены</button>
+        {s.can('sale.new') && shift.staff.length > 0 && <button className="btn light inline" onClick={onSale}>Добавить продажу в смену</button>}
+      </div>}
       {latest && s.can('shift.edit_data') && (
         <button className="btn danger" style={{ marginTop: 16 }} onClick={() => api(`/shifts/${shift.id}/reopen`, { method: 'POST' }).then(onChanged).catch((e: unknown) => setError(e instanceof Error ? e.message : 'Ошибка'))}>Отменить закрытие</button>
       )}

@@ -58,6 +58,7 @@ export default function App() {
         <Route path="/new-sale" element={<NewSale />} />
         <Route path="/paintings" element={<Paintings />} />
         <Route path="/sales-history" element={<SalesHistory />} />
+        <Route path="/sales-table" element={<SaleRegister />} />
         <Route path="/sale/:id" element={<SaleDetail />} />
         <Route path="/products" element={<Products />} />
         <Route path="/product/:id" element={<ProductEdit />} />
@@ -111,3 +112,4 @@ function SiteLoginNeeded() {
     </div>
   );
 }
+import SaleRegister from './pages/SaleRegister';

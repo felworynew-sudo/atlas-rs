@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type PriceType, type Category, type Client, type ListItem, type Product, type Sale, type SavedCart, type StockRow } from '../api';
-import { Icon, type IconName } from '../Icon';
+import { Icon } from '../Icon';
+import { MethodPixelIcon, paymentAppearance } from '../MethodPixelIcon';
+import { ClientPicker } from '../ClientPicker';
 import { change, num, rub, saleTotals, type CartLine, type Discount } from '../money';
 import { useSession } from '../session';
 import { Header, Modal, Spinner, useLoad, useMedia, useToast } from '../ui';
@@ -9,12 +11,6 @@ import { PaintingForm, guessPainting, type PaintingDraft } from '../PaintingForm
 import { emptyPainting, staffLabel } from './Paintings';
 
 const BILLS = [1, 5, 10, 50, 100, 500, 1000, 5000];
-
-/** Иконка метода оплаты или покупки, выбранная в настройках. */
-const methodIcon = (m: ListItem) => {
-  const name = m.params.icon as IconName | undefined;
-  return name ? <><Icon name={name} size={16} />{' '}</> : null;
-};
 
 export default function NewSale() {
   const s = useSession();
@@ -44,8 +40,7 @@ export default function NewSale() {
   const [cat, setCat] = useState<string>('all');
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [client, setClient] = useState<Client | null>(null);
-  const [clientQuery, setClientQuery] = useState('');
-  const [found, setFound] = useState<Client[]>([]);
+  const [clientPending, setClientPending] = useState(false);
   const [discount, setDiscount] = useState<Discount>({ type: 'none' });
   const [purchaseId, setPurchaseId] = useState<string | null>(null);
   const [paymentId, setPaymentId] = useState<string | null>(null);
@@ -58,7 +53,7 @@ export default function NewSale() {
   const [deliveryOn, setDeliveryOn] = useState(false);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryPhone, setDeliveryPhone] = useState('');
-  const [modal, setModal] = useState<null | 'discount' | 'custom' | 'carts' | 'mods'>(null);
+  const [modal, setModal] = useState<null | 'discount' | 'custom' | 'carts' | 'mods' | 'unavailable'>(null);
   const [custom, setCustom] = useState({ name: '', price: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -110,20 +105,9 @@ export default function NewSale() {
   const mixedInvalid = !!second && (first <= 0 || secondValue <= 0);
 
   // поиск клиента по имени или телефону
-  useEffect(() => {
-    if (!s.can('client.view') || clientQuery.trim().length < 2) {
-      setFound([]);
-      return;
-    }
-    const t = setTimeout(() => {
-      api<Client[]>('/clients', { query: { search: clientQuery.trim() } }).then(setFound).catch(() => setFound([]));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [clientQuery, s]);
-
   const visible = (products.data ?? []).filter((p) => {
     const sp = p.stores.find((x) => x.storeId === storeId);
-    if (p.hiddenInNewSale || (sp && !sp.active)) return false;
+    if (p.hiddenInNewSale) return false;
     if (cat !== 'all' && p.categoryId !== cat) return false;
     const q = search.trim().toLowerCase();
     // число в поиске — ищем и по цене: «1500», «1 500», «1500₽»; пока печатают («150») — цены, начинающиеся с этих цифр
@@ -157,20 +141,29 @@ export default function NewSale() {
     setDeliveryAddress('');
     setDeliveryPhone('');
     setClient(null);
-    setClientQuery('');
+    setClientPending(false);
     setDiscount({ type: 'none' });
     setReceived('');
     setError(null);
     idem.current = crypto.randomUUID();
   }
 
-  async function checkout() {
+  // товары, отмеченные в филиале как отсутствующие на складе: продать можно, но только после подтверждения
+  const unavailable = lines.filter((l) => l.productId && products.data?.find((p) => p.id === l.productId)?.stores.some((x) => x.storeId === storeId && !x.active));
+  function checkout() {
+    if (unavailable.length > 0) setModal('unavailable');
+    else void doCheckout(false);
+  }
+
+  async function doCheckout(confirmed: boolean) {
+    if (clientPending) return;
     setBusy(true);
     setError(null);
     try {
       const sale = await api<Sale>('/sales', {
         body: {
           storeId,
+          allowUnavailable: confirmed || undefined,
           clientId: client?.id,
           paymentMethodId: payment?.id,
           priceTypeId: effectiveType ?? undefined,
@@ -254,9 +247,10 @@ export default function NewSale() {
           {visible.map((p) => {
             const price = p.stores.find((x) => x.storeId === storeId)?.salePrice ?? 0;
             const st = stockMap.get(p.id);
+            const off = p.stores.some((x) => x.storeId === storeId && !x.active);
             return (
-              <button key={p.id} className="product" onClick={() => add(p)}>
-                <span className="name">{p.name}</span>
+              <button key={p.id} className="product" style={off ? { opacity: 0.55 } : undefined} onClick={() => add(p)}>
+                <span className="name">{p.name}{off && <div className="meta low">нет на складе</div>}</span>
                 <span>
                   <span className="price">{rub(price)}</span>
                   {st && !p.isService && <div className={`meta${st.low ? ' low' : ''}`}>({num(st.qty)} шт)</div>}
@@ -271,7 +265,7 @@ export default function NewSale() {
   );
 
   const cart = (
-    <section aria-label="Чек">
+    <>
       <div className="row" style={{ marginBottom: 14 }}>
         {s.moduleOn('simple_sales') && s.can('sale.new') && (
           <button className="chip small" onClick={() => setModal('carts')}>Открытые чеки ({carts.data?.length ?? 0})</button>
@@ -282,35 +276,16 @@ export default function NewSale() {
         )}
       </div>
 
-      {s.can('client.view') && flag('clientInSale', false) && (
-        <div style={{ marginBottom: 14 }}>
-          <span className="label">Клиент</span>
-          {client ? (
-            <div className="card row">
-              <div className="grow"><div className="title">{client.name}</div><div className="sub">{client.phone} · бонусы {rub(client.bonusBalance)}</div></div>
-              <button className="icon-btn small" aria-label="Убрать клиента" onClick={() => setClient(null)}><Icon name="close" size={18} /></button>
-            </div>
-          ) : (
-            <>
-              <input type="search" placeholder="Поиск" value={clientQuery} onChange={(e) => setClientQuery(e.target.value)} />
-              {found.map((c) => (
-                <div key={c.id} className="card click" style={{ marginTop: 6 }} onClick={() => { setClient(c); setFound([]); setClientQuery(''); }}>
-                  <div className="title">{c.name}</div><div className="sub">{c.phone}</div>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      )}
+      {s.can('client.card') && <ClientPicker client={client} onChange={setClient} onPending={setClientPending} />}
 
       <div className="chips">
         {(purchases.data ?? []).map((p) => (
-          <button key={p.id} className={`chip small${p.id === purchase?.id ? ' active' : ''}`} onClick={() => setPurchaseId(p.id)}>{methodIcon(p)}{String(p.params.label ?? '') || p.name}</button>
+          <button key={p.id} className={`chip small${p.id === purchase?.id ? ' active' : ''}`} aria-pressed={p.id === purchase?.id} onClick={() => setPurchaseId(p.id)}><MethodPixelIcon method={p} purchase />{String(p.params.label ?? '') || p.name}</button>
         ))}
       </div>
       <div className="chips">
         {(payments.data ?? []).map((p) => (
-          <button key={p.id} className={`chip small${p.id === payment?.id ? ' active' : ''}`} onClick={() => setPaymentId(p.id)}>{methodIcon(p)}{String(p.params.label ?? '') || p.name}</button>
+          <button key={p.id} className={`chip small${p.id === payment?.id ? ' active' : ''}`} aria-pressed={p.id === payment?.id} onClick={() => setPaymentId(p.id)}><MethodPixelIcon method={p} />{String(p.params.label ?? '') || p.name}</button>
         ))}
       </div>
       {otherPayment && (
@@ -329,7 +304,7 @@ export default function NewSale() {
       )}
       {(payments.data ?? []).length > 1 && (
         <label className="row" style={{ gap: 8, marginBottom: 8 }}>
-          <input type="checkbox" checked={mixed} onChange={(e) => setMixed(e.target.checked)} style={{ width: 20, height: 20 }} />
+          <input type="checkbox" checked={mixed} onChange={(e) => setMixed(e.target.checked)} />
           <span>Смешанная оплата</span>
         </label>
       )}
@@ -337,7 +312,7 @@ export default function NewSale() {
         <>
           <div className="chips">
             {(payments.data ?? []).filter((p) => p.id !== payment?.id).map((p) => (
-              <button key={p.id} className={`chip small${p.id === second.id ? ' active' : ''}`} onClick={() => setSecondId(p.id)}>{p.name}</button>
+              <button key={p.id} className={`chip small${p.id === second.id ? ' active' : ''}`} aria-pressed={p.id === second.id} onClick={() => setSecondId(p.id)}><MethodPixelIcon method={p} />{p.name}</button>
             ))}
           </div>
           <label className="field"><span>Сумма {payment?.name}</span>
@@ -369,7 +344,7 @@ export default function NewSale() {
             </label>
           )}
           <label className="row" style={{ gap: 8 }}>
-            <input type="checkbox" checked={cashbackOn} style={{ width: 20, height: 20 }} onChange={(e) => setCashbackOn(e.target.checked)} />
+            <input type="checkbox" checked={cashbackOn} onChange={(e) => setCashbackOn(e.target.checked)} />
             <span>Начислять кэшбэк</span>
           </label>
         </div>
@@ -378,7 +353,7 @@ export default function NewSale() {
       {flag('tableNumberFieldVisible', false) && <label className="field"><span>Номер стола</span><input type="text" value={tableNo} onChange={(e) => setTableNo(e.target.value)} /></label>}
       {flag('commentFieldVisible', false) && !otherPayment && <label className="field"><span>Комментарий</span><input type="text" value={saleComment} onChange={(e) => setSaleComment(e.target.value)} /></label>}
       <label className="row" style={{ gap: 8, marginBottom: 8 }}>
-        <input type="checkbox" checked={deliveryOn} style={{ width: 20, height: 20 }} onChange={(e) => { setDeliveryOn(e.target.checked); if (e.target.checked) { if (!deliveryAddress && client?.address) setDeliveryAddress(client.address); if (!deliveryPhone && client?.phone) setDeliveryPhone(client.phone); } }} />
+        <input type="checkbox" checked={deliveryOn} onChange={(e) => { setDeliveryOn(e.target.checked); if (e.target.checked) { if (!deliveryAddress && client?.address) setDeliveryAddress(client.address); if (!deliveryPhone && client?.phone) setDeliveryPhone(client.phone); } }} />
         <span>Доставка</span>
       </label>
       {deliveryOn && (
@@ -400,33 +375,40 @@ export default function NewSale() {
       )}
 
       <label className="row" style={{ gap: 8, marginBottom: 10 }}>
-        <input type="checkbox" checked={isPainting} style={{ width: 20, height: 20 }} onChange={(e) => setIsPainting(e.target.checked)} />
+        <input type="checkbox" checked={isPainting} onChange={(e) => setIsPainting(e.target.checked)} />
         <span>Это картина — записать в таблицу картин</span>
       </label>
-      {error && <div className="error" role="alert">{error}</div>}
-      {flag('showSaveCartForLater', true) && <button className="btn light" style={{ marginBottom: 10 }} disabled={lines.length === 0} onClick={postpone}>Отложить</button>}
-      <button className="btn" disabled={lines.length === 0 || busy || mixedInvalid} onClick={checkout}>Готово</button>
-      {lines.length === 0 && <div className="muted" style={{ margin: '10px 0 0', textAlign: 'center', fontSize: 13 }}>Добавьте товар, чтобы оформить продажу</div>}
-    </section>
+    </>
   );
 
   return (
     <>
       <Header title="Новая продажа" right={lines.length > 0 ? <button className="icon-btn" aria-label="Очистить чек" onClick={reset}><Icon name="trash" /></button> : undefined} />
-      <main className="page wide">
-        {wide ? (
-          <div className="sale">{cart}{catalog}</div>
-        ) : (
-          <>
-            <button className="btn light" style={{ marginBottom: 16 }} onClick={() => setCatalogOpen(true)}>+ Добавить товар</button>
-            {cart}
-            {catalogOpen && (
-              <div className="sheet">
-                <Header title="Каталог" back={false} right={<button className="icon-btn" aria-label="Закрыть каталог" onClick={() => setCatalogOpen(false)}><Icon name="close" /></button>} />
-                <div className="page">{catalog}</div>
+      <main className="page wide sale-page">
+        <div className="sale">
+          <section className="sale-cart" aria-label="Чек">
+            <div className="sale-cart-scroll">
+              {!wide && <button className="btn light" style={{ marginBottom: 16 }} onClick={() => setCatalogOpen(true)}>+ Добавить товар</button>}
+              {cart}
+            </div>
+            <div className="sale-cart-footer">
+              {error && <div className="error" role="alert">{error}</div>}
+              {lines.length === 0 && <div id="sale-checkout-hint" className="muted sale-checkout-hint">Добавьте товар, чтобы оформить продажу</div>}
+              <div className="sale-cart-actions">
+                {flag('showSaveCartForLater', true) && <button className="btn light inline sale-postpone" disabled={lines.length === 0} onClick={postpone}>Отложить</button>}
+                <button className="btn sale-checkout" data-payment={second ? 'mixed' : paymentAppearance(payment)}
+                  aria-describedby={lines.length === 0 ? 'sale-checkout-hint' : undefined}
+                  disabled={lines.length === 0 || busy || mixedInvalid || clientPending} onClick={checkout}>Готово</button>
               </div>
-            )}
-          </>
+            </div>
+          </section>
+          {wide && <div className="sale-catalog-scroll">{catalog}</div>}
+        </div>
+        {!wide && catalogOpen && (
+          <div className="sheet">
+            <Header title="Каталог" back={false} right={<button className="icon-btn" aria-label="Закрыть каталог" onClick={() => setCatalogOpen(false)}><Icon name="close" /></button>} />
+            <div className="page">{catalog}</div>
+          </div>
         )}
       </main>
 
@@ -451,6 +433,16 @@ export default function NewSale() {
               ))}
             </div>
           ))}
+        </Modal>
+      )}
+      {modal === 'unavailable' && (
+        <Modal onClose={() => setModal(null)}>
+          <div className="h2" style={{ marginTop: 0 }}>Этот товар отмечен как отсутствующий на складе</div>
+          <div className="muted" style={{ marginBottom: 12 }}>{unavailable.map((l) => l.name).join(', ')}</div>
+          <div style={{ display: 'grid', gap: 10 }}>
+            <button className="btn" onClick={() => { setModal(null); void doCheckout(true); }}>Я знаю, что делаю</button>
+            <button className="btn light" onClick={() => setModal(null)}>Передумал</button>
+          </div>
         </Modal>
       )}
       {modal === 'discount' && (

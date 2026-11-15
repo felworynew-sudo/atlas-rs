@@ -17,6 +17,7 @@ interface Tile {
 const TILES: Tile[] = [
   { title: 'Новая продажа', icon: 'plus', to: '/new-sale', perm: 'sale.new', module: 'simple_sales' },
   { title: 'История продаж', icon: 'clock', to: '/sales-history', perm: 'sale.history', module: 'simple_sales' },
+  { title: 'Таблица продаж', icon: 'clipboard', to: '/sales-table', perm: 'sale.history', module: 'simple_sales' },
   // картины ведутся в листе «Печать» Google-таблицы (через сайт): та же таблица, что у трекера заказов
   { title: 'Картины', icon: 'image', to: '/paintings', perm: 'sale.new', module: 'simple_sales' },
   { title: 'Комплексные продажи', icon: 'file-text', to: '/complex-sales', perm: 'complex_sale.view', module: 'complex_sales' },
@@ -52,13 +53,16 @@ export default function Home() {
 
   return (
     <>
-      <header className="header">
-        <select aria-label="Филиал" value={s.storeId ?? ''} onChange={(e) => s.setStoreId(e.target.value)} style={{ width: 'auto', background: 'transparent', maxWidth: '60%' }}>
-          {s.stores.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
-        </select>
-        <h1 />
-        <button className="link" onClick={() => confirm('Выйти из аккаунта?') && s.logout()}>{s.user?.name}</button>
-      </header>
+      {/* В рамке дев-панели филиал выбирается сверху (там же сотрудник), имя с выходом не нужны */}
+      {window.parent === window && (
+        <header className="header">
+          <select aria-label="Филиал" value={s.storeId ?? ''} onChange={(e) => s.setStoreId(e.target.value)} style={{ width: 'auto', background: 'transparent', maxWidth: '60%' }}>
+            {s.stores.map((st) => <option key={st.id} value={st.id}>{st.name}</option>)}
+          </select>
+          <h1 />
+          <button className="link" onClick={() => confirm('Выйти из аккаунта?') && s.logout()}>{s.user?.name}</button>
+        </header>
+      )}
       <main className="page wide">
         <div className="org-name">{s.org?.name}</div>
         {stats && (
