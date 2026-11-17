@@ -46,7 +46,7 @@ export default function ShiftPage() {
   async function open() {
     setError(null);
     try {
-      await api('/shifts/open', { body: { storeId: store, openingCash: opening === '' ? undefined : Number(opening.replace(',', '.')) } });
+      await api('/shifts/open', { body: { storeId: store, openingCash: Number(opening.replace(',', '.')) } });
       setOpening('');
       reloadAll();
     } catch (e) {
@@ -69,10 +69,10 @@ export default function ShiftPage() {
             <div className="error" style={{ fontWeight: 600 }}>Смена закрыта</div>
             <div className="org-name" style={{ textAlign: 'left', fontSize: 28, margin: '4px 0 20px' }}>Откройте пожалуйста смену</div>
             <label className="field"><span>Наличные в кассе на начало смены</span>
-              <input type="number" min="0" step="any" value={opening} placeholder="по остатку счёта «Наличные с кассы»" onChange={(e) => setOpening(e.target.value)} />
+              <input type="number" min="0.01" step="any" value={opening} placeholder="Введите сумму больше 0" onChange={(e) => setOpening(e.target.value)} />
             </label>
             {error && <div className="error" role="alert">{error}</div>}
-            <button className="btn" onClick={open}>Открыть</button>
+            <button className="btn" disabled={!(Number(opening.replace(',', '.')) > 0)} onClick={open}>Открыть</button>
           </>
         )}
 

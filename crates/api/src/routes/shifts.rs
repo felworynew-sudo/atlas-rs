@@ -411,8 +411,8 @@ async fn open_shift(pool: &PgPool, org: Uuid, store: Uuid, opener: Uuid, opening
         return Err(AppError::Conflict("Смена на сегодня уже закрыта. Откройте её в истории смен, чтобы внести исправления".into()));
     }
     let opening = match opening_cash {
-        Some(v) if v.is_finite() && v >= 0.0 => v,
-        Some(_) => return Err(AppError::BadRequest("Наличных в кассе не может быть меньше нуля".into())),
+        Some(v) if v.is_finite() && v > 0.0 => v,
+        Some(_) => return Err(AppError::BadRequest("Укажите сумму наличных больше нуля".into())),
         None => {
             let (v,): (f64,) = sqlx::query_as(
                 "SELECT COALESCE(SUM(t.delta),0)::float8 FROM wallet_transactions t JOIN wallets w ON w.id = t.wallet_id                  WHERE w.is_cash_register AND w.store_id=$1 AND w.deleted_at IS NULL",
@@ -423,6 +423,9 @@ async fn open_shift(pool: &PgPool, org: Uuid, store: Uuid, opener: Uuid, opening
             v.max(0.0)
         }
     };
+    if opening <= 0.0 {
+        return Err(AppError::BadRequest("Укажите сумму наличных больше нуля".into()));
+    }
     let mut staff = staff_ids.to_vec();
     if !staff.contains(&opener) {
         staff.push(opener);

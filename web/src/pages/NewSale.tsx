@@ -54,7 +54,10 @@ export default function NewSale() {
   const [deliveryOn, setDeliveryOn] = useState(false);
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryPhone, setDeliveryPhone] = useState('');
-  const [modal, setModal] = useState<null | 'discount' | 'custom' | 'carts' | 'mods' | 'unavailable'>(null);
+  const [modal, setModal] = useState<null | 'discount' | 'custom' | 'carts' | 'mods' | 'unavailable' | 'opening-shift'>(null);
+  const [openingCash, setOpeningCash] = useState('');
+  const [openingError, setOpeningError] = useState('');
+  const pendingCheckout = useRef(false);
   const [custom, setCustom] = useState({ name: '', price: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -213,7 +216,12 @@ export default function NewSale() {
       reset();
       stock.reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Ошибка');
+      const message = e instanceof Error ? e.message : 'Ошибка';
+      if (message.includes('сначала откройте смену')) {
+        pendingCheckout.current = confirmed;
+        setOpeningError('');
+        setModal('opening-shift');
+      } else setError(message);
     } finally {
       setBusy(false);
     }
@@ -461,6 +469,23 @@ export default function NewSale() {
             <button className="btn" onClick={() => { setModal(null); void doCheckout(true); }}>Я знаю, что делаю</button>
             <button className="btn light" onClick={() => setModal(null)}>Передумал</button>
           </div>
+        </Modal>
+      )}
+      {modal === 'opening-shift' && (
+        <Modal onClose={() => setModal(null)}>
+          <div className="h2" style={{ marginTop: 0 }}>Открыть смену перед продажей</div>
+          <p className="muted">Укажите, сколько наличных в кассе на начало дня. Чек сохранится после открытия смены.</p>
+          <label className="field"><span>Наличные на начало смены, ₽</span><input type="number" min="0.01" step="any" inputMode="decimal" value={openingCash} onChange={(e) => setOpeningCash(e.target.value)} autoFocus /></label>
+          {openingError && <div className="error" role="alert">{openingError}</div>}
+          <button className="btn" disabled={busy || !(Number(openingCash.replace(',', '.')) > 0)} onClick={async () => {
+            setBusy(true); setOpeningError('');
+            try {
+              await api('/shifts/open', { body: { storeId, openingCash: Number(openingCash.replace(',', '.')) } });
+              setModal(null); setOpeningCash('');
+              void doCheckout(pendingCheckout.current);
+            } catch (e) { setOpeningError(e instanceof Error ? e.message : 'Не удалось открыть смену'); }
+            finally { setBusy(false); }
+          }}>Открыть смену и сохранить чек</button>
         </Modal>
       )}
       {modal === 'discount' && (
