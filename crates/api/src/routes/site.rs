@@ -51,6 +51,7 @@ pub fn router() -> Router<AppState> {
 struct ClientContact {
     phone: String,
     name: String,
+    email: String,
     first_at: chrono::DateTime<chrono::Utc>,
     last_at: chrono::DateTime<chrono::Utc>,
 }
@@ -58,11 +59,16 @@ struct ClientContact {
 async fn clients(State(state): State<AppState>, headers: HeaderMap) -> AppResult<Json<Vec<ClientContact>>> {
     super::auth::check_site_secret(&headers)?;
     let contacts = sqlx::query_as::<_, ClientContact>(
-        "SELECT c.phone, c.name, MIN(s.sale_date) AS first_at, MAX(s.sale_date) AS last_at \
-         FROM clients c JOIN organizations o ON o.id=c.organization_id \
-         JOIN sales s ON s.client_id=c.id AND s.organization_id=c.organization_id AND s.deleted_at IS NULL \
-         WHERE o.external_id='wow-my-eyes' AND c.deleted_at IS NULL AND c.phone<>'' \
-         GROUP BY c.id ORDER BY MAX(s.sale_date) DESC",
+        "SELECT phone, MAX(name) AS name, MAX(email) AS email, MIN(at) AS first_at, MAX(at) AS last_at FROM ( \
+           SELECT c.phone, c.name, ''::text AS email, s.sale_date AS at \
+           FROM clients c JOIN organizations o ON o.id=c.organization_id \
+           JOIN sales s ON s.client_id=c.id AND s.organization_id=c.organization_id AND s.deleted_at IS NULL \
+           WHERE o.external_id='wow-my-eyes' AND c.deleted_at IS NULL AND c.phone<>'' \
+           UNION ALL \
+           SELECT co.client_phone AS phone, co.client_name AS name, co.client_email AS email, co.created_at AS at \
+           FROM client_orders co JOIN organizations o ON o.id=co.organization_id \
+           WHERE o.external_id='wow-my-eyes' AND co.deleted_at IS NULL AND co.client_phone<>'' \
+         ) contacts GROUP BY phone ORDER BY MAX(at) DESC",
     ).fetch_all(&state.pool).await?;
     Ok(Json(contacts))
 }
