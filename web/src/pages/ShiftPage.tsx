@@ -32,7 +32,7 @@ export default function ShiftPage() {
   const current = useLoad(() => api<Shift | null>('/shifts/current', { query: { storeId: store } }), [store]);
   const history = useLoad(() => api<Shift[]>('/shifts', { query: { storeId: store } }), [store]);
   const [opening, setOpening] = useState('');
-  const [modal, setModal] = useState<null | 'cashbox' | 'close' | 'staff'>(null);
+  const [modal, setModal] = useState<null | 'cashbox' | 'close' | 'staff' | 'opening'>(null);
   const [viewing, setViewing] = useState<Shift | null>(null);
   const [report, setReport] = useState<Shift | null>(null);
   const [closedAction, setClosedAction] = useState<'edit' | 'sale' | null>(null);
@@ -95,6 +95,9 @@ export default function ShiftPage() {
               <Line label="Открытие смены" value={fmtDateTime(sh.openedAt)} />
               <div className="day">Наличные в кассе</div>
               <Line label="Сумма на начало смены" value={rub(sh.openingCash)} />
+              {(s.can('shift.edit_data') || sh.openedBy === s.user?.id) && (
+                <button className="link" onClick={() => setModal('opening')}>Исправить сумму на начало</button>
+              )}
               <Line label="Продажи" value={rub(sh.totals.cashSales)} />
               <Line label="Возвраты" value={rub(sh.totals.cashReturns)} />
               <Line label="Изъятия" value={rub(sh.totals.withdrawals)} />
@@ -138,6 +141,7 @@ export default function ShiftPage() {
       </main>
 
       {modal === 'cashbox' && sh && <CashboxModal shiftId={sh.id} onClose={() => setModal(null)} onDone={() => { setModal(null); reloadAll(); say('Успешно'); }} />}
+      {modal === 'opening' && sh && <OpeningCashModal shift={sh} onClose={() => setModal(null)} onDone={() => { setModal(null); reloadAll(); say('Начальная наличка исправлена'); }} />}
       {modal === 'close' && sh && <CloseModal shift={sh} onClose={() => setModal(null)} onDone={(closed) => { setModal(null); reloadAll(); setReport(closed); }} />}
       {modal === 'staff' && sh && <StaffModal shift={sh} onClose={() => setModal(null)} onDone={() => { setModal(null); reloadAll(); }} />}
       {viewing && !closedAction && <ClosedModal shift={viewing} latest={closed[0]?.id === viewing.id}
@@ -157,6 +161,40 @@ export default function ShiftPage() {
       {report && <ReportModal shift={report} by={s.user?.name ?? ''} onClose={() => setReport(null)} />}
       {toast}
     </>
+  );
+}
+
+function OpeningCashModal({ shift, onClose, onDone }: { shift: Shift; onClose: () => void; onDone: () => void }) {
+  const [amount, setAmount] = useState(String(shift.openingCash));
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const value = Number(amount.replace(',', '.'));
+
+  async function save() {
+    setError(null);
+    setBusy(true);
+    try {
+      await api(`/shifts/${shift.id}/opening-cash`, {
+        method: 'PATCH',
+        body: { revision: shift.revision, openingCash: value },
+      });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Ошибка');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="h2" style={{ marginTop: 0 }}>Наличные на начало смены</div>
+      <label className="field"><span>Фактическая сумма в кассе при открытии</span>
+        <input type="number" min="0" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} />
+      </label>
+      {error && <div className="error" role="alert">{error}</div>}
+      <button className="btn" disabled={busy || amount.trim() === '' || !Number.isFinite(value) || value < 0} onClick={save}>Сохранить</button>
+    </Modal>
   );
 }
 

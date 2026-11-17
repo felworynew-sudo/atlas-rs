@@ -132,6 +132,23 @@ async fn shift_flow() {
     let (st, _) = call(&env, Method::POST, "/api/shifts/open", Some(t), Some(json!({"storeId": store}))).await;
     assert_eq!(st, StatusCode::CONFLICT);
 
+    let opening_url = format!("/api/shifts/{shift_id}/opening-cash");
+    let first_revision = s(&shift["revision"]);
+    let (st, updated) = call(&env, Method::PATCH, &opening_url, Some(ct),
+        Some(json!({"revision": first_revision, "openingCash": 6500.0}))).await;
+    assert_eq!(st, StatusCode::OK, "{updated}");
+    eq(&updated["openingCash"], 6500.0);
+    eq(&updated["totals"]["expectedCash"], 6500.0);
+    let (st, _) = call(&env, Method::PATCH, &opening_url, Some(ct),
+        Some(json!({"revision": first_revision, "openingCash": 7000.0}))).await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    let (st, _) = call(&env, Method::PATCH, &opening_url, Some(ct),
+        Some(json!({"revision": updated["revision"], "openingCash": -1.0}))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
+    let (st, _) = call(&env, Method::PATCH, &opening_url, Some(t),
+        Some(json!({"revision": updated["revision"], "openingCash": 1000.0}))).await;
+    assert_eq!(st, StatusCode::OK);
+
     // продажи: 2 шт наличными, 1 шт по QR; возврат 1 шт из наличной; расход, изъятие и внесение
     let (_, s1) = call(&env, Method::POST, "/api/sales", Some(ct), Some(sale(&cash_pm, 2))).await;
     eq(&s1["total"], 200.0);
@@ -176,6 +193,9 @@ async fn shift_flow() {
     assert_eq!(st, StatusCode::BAD_REQUEST);
     let (st, closed) = call(&env, Method::POST, &format!("/api/shifts/{shift_id}/close"), Some(ct), Some(json!({"actualCash": 760.0, "comment": "Не хватило сдачи"}))).await;
     assert_eq!(st, StatusCode::OK, "{closed}");
+    let (st, _) = call(&env, Method::PATCH, &opening_url, Some(ct),
+        Some(json!({"revision": closed["revision"], "openingCash": 8000.0}))).await;
+    assert_eq!(st, StatusCode::BAD_REQUEST);
     eq(&closed["expectedCash"], 770.0);
     eq(&closed["diff"], -10.0);
     assert!(!closed["closedAt"].is_null());

@@ -67,9 +67,9 @@ export default function Home() {
         <div className="org-name">{s.org?.name}</div>
         {stats && (
           <div className="stats">
-            <div><b>Продажи на сегодня</b>{rub(stats.today.sales)}<br />{rub(stats.weekAgo.sales)}</div>
-            <div><b>Количество чеков</b>{num(stats.today.checks)}<br />{num(stats.weekAgo.checks)}</div>
-            <div><b>Средний чек</b>{rub(stats.today.avgCheck)}<br />{rub(stats.weekAgo.avgCheck)}</div>
+            <div><b>Продажи</b><small>Сегодня</small>{rub(stats.today.sales)}<small>Неделю назад</small>{rub(stats.weekAgo.sales)}</div>
+            <div><b>Количество чеков</b><small>Сегодня</small>{num(stats.today.checks)}<small>Неделю назад</small>{num(stats.weekAgo.checks)}</div>
+            <div><b>Средний чек</b><small>Сегодня</small>{rub(stats.today.avgCheck)}<small>Неделю назад</small>{rub(stats.weekAgo.avgCheck)}</div>
           </div>
         )}
         <div className="tiles">

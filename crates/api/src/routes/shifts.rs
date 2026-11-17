@@ -26,6 +26,7 @@ pub fn router() -> Router<AppState> {
         .route("/current", get(current))
         .route("/open", post(open))
         .route("/{id}", get(one).patch(edit_closed))
+        .route("/{id}/opening-cash", axum::routing::patch(edit_opening_cash))
         .route("/{id}/close", post(close))
         .route("/{id}/reopen", post(reopen))
         .route("/{id}/staff", post(staff_add))
@@ -574,6 +575,47 @@ async fn edit_closed(State(s): State<AppState>, ctx: AuthContext, Path(id): Path
         dto.close.comment.as_deref().unwrap_or(&row.comment).trim()).await?;
     tx.commit().await?;
     crate::events::log(&s.pool, ctx.org_id, Some(row.store_id), ctx.user_id, "shift_updated", "Исправлены данные закрытой смены").await;
+    Ok(Json(view_one(&s.pool, ctx.org_id, id).await?))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EditOpeningCashDto {
+    revision: String,
+    opening_cash: f64,
+}
+
+/// Исправление начальной налички открытой смены её открывшим сотрудником или администратором.
+async fn edit_opening_cash(
+    State(s): State<AppState>,
+    ctx: AuthContext,
+    Path(id): Path<Uuid>,
+    Json(dto): Json<EditOpeningCashDto>,
+) -> AppResult<Json<ShiftView>> {
+    ctx.require("shift.view")?;
+    if !dto.opening_cash.is_finite() || dto.opening_cash < 0.0 {
+        return Err(AppError::BadRequest("Укажите сумму наличных на начало смены".into()));
+    }
+    let mut tx = s.pool.begin().await?;
+    let row = lock_shift(&mut tx, ctx.org_id, id).await?;
+    check_store(&s.pool, &ctx, row.store_id).await?;
+    if row.closed_at.is_some() {
+        return Err(AppError::BadRequest("Смена уже закрыта".into()));
+    }
+    if row.opened_by != ctx.user_id && !ctx.can("shift.edit_data") {
+        return Err(AppError::Forbidden);
+    }
+    if row.revision != dto.revision {
+        return Err(AppError::Conflict("Смена изменилась. Обновите страницу перед сохранением".into()));
+    }
+    sqlx::query("UPDATE shifts SET opening_cash=$2::float8 WHERE id=$1 AND closed_at IS NULL")
+        .bind(id)
+        .bind(round2(dto.opening_cash))
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    crate::events::log(&s.pool, ctx.org_id, Some(row.store_id), ctx.user_id, "shift_updated",
+        &format!("Начальная наличка смены изменена: {} → {} ₽", crate::events::fmt(row.opening_cash), crate::events::fmt(round2(dto.opening_cash)))).await;
     Ok(Json(view_one(&s.pool, ctx.org_id, id).await?))
 }
 
