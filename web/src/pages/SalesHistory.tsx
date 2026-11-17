@@ -27,6 +27,7 @@ export default function SalesHistory() {
   );
   const payName = (id: string | null) => (pay.data ?? []).find((p) => p.id === id)?.name ?? '—';
   const storeName = (id: string) => s.stores.find((x) => x.id === id)?.name ?? '';
+  const salesTotal = (sales.data ?? []).reduce((sum, sale) => sum + sale.total, 0);
 
   const groups = useMemo(() => {
     const m = new Map<string, Sale[]>();
@@ -51,6 +52,7 @@ export default function SalesHistory() {
           {s.stores.map((st) => <button key={st.id} className={`chip${store === st.id ? ' active' : ''}`} onClick={() => setStore(st.id)}>{st.name}</button>)}
         </div>
         <button className="link" onClick={sales.reload}>Обновить</button>
+        {!sales.loading && <div className="card"><b>Всего: {rub(salesTotal)}</b><div className="sub">{(sales.data ?? []).length} чеков за выбранный период</div></div>}
 
         {sales.loading && <Spinner />}
         {sales.error && <div className="error">{sales.error}</div>}

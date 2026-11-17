@@ -319,6 +319,7 @@ export interface Shift {
   revision: string;
   storeId: string;
   openedBy: string;
+  openedByName: string;
   openedAt: string;
   closedAt: string | null;
   openingCash: number;

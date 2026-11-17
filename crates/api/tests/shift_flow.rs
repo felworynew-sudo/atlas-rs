@@ -127,6 +127,7 @@ async fn shift_flow() {
     let (st, shift) = call(&env, Method::POST, "/api/shifts/open", Some(ct), Some(json!({"storeId": store}))).await;
     assert_eq!(st, StatusCode::OK, "{shift}");
     eq(&shift["openingCash"], 1000.0);
+    assert_eq!(shift["openedByName"], "Катя");
     let shift_id = s(&shift["id"]);
     assert_eq!(shift["staff"].as_array().unwrap().len(), 1);
     let (st, _) = call(&env, Method::POST, "/api/shifts/open", Some(t), Some(json!({"storeId": store}))).await;

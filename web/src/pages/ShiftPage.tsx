@@ -131,8 +131,9 @@ export default function ShiftPage() {
         {closed.length === 0 && <div className="empty">Закрытых смен пока нет</div>}
         {closed.map((x) => (
           <div key={x.id} className="card click row" onClick={() => setViewing(x)}>
+            <span className="shift-avatar" aria-hidden="true">{x.openedByName.trim().charAt(0).toUpperCase() || '•'}</span>
             <div className="grow">
-              <div className="title">{fmtDateTime(x.openedAt)} — {fmtDateTime(x.closedAt as string)}</div>
+              <div className="title">{fmtDateTime(x.openedAt)} — {fmtDateTime(x.closedAt as string)} · {x.openedByName}</div>
               <div className="sub">Продажи {rub(x.totals.sales)}{x.autoClosed ? ' · автозакрытие' : ''}</div>
             </div>
             <span className={(x.diff ?? 0) < 0 ? 'price low' : 'price'}>{x.diff === null ? '' : rub(x.diff)}</span>

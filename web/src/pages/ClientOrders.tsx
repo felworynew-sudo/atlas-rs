@@ -31,6 +31,7 @@ export default function ClientOrders() {
   const methods = useLoad(() => api<ListItem[]>('/lists/payment_methods'), []);
   const [method, setMethod] = useState('');
   const data = list.data ?? [];
+  const total = data.reduce((sum, order) => sum + order.total, 0);
 
   async function run(fn: () => Promise<unknown>, ok = 'Успешно') {
     try {
@@ -53,6 +54,7 @@ export default function ClientOrders() {
           <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} style={{ width: 20, height: 20 }} />
           <span>Только необработанные и в работе</span>
         </label>
+        {!list.loading && <div className="card"><b>Всего: {rub(total)}</b><div className="sub">{data.length} заказов в текущем фильтре</div></div>}
         {list.loading && <Spinner />}
         {list.error && <div className="error">{list.error}</div>}
         {!list.loading && data.length === 0 && <div className="empty">Заказов нет</div>}
