@@ -31,6 +31,9 @@ export default function ShiftPage() {
   const [store, setStore] = useState(s.storeId ?? '');
   const current = useLoad(() => api<Shift | null>('/shifts/current', { query: { storeId: store } }), [store]);
   const history = useLoad(() => api<Shift[]>('/shifts', { query: { storeId: store } }), [store]);
+  const avatars = useLoad(() => fetch('/api/dev/staff', { credentials: 'same-origin' })
+    .then((response) => response.ok ? response.json() as Promise<{ staff: { id: string; photo: string; photoMini?: string }[] }> : { staff: [] })
+    .then((data) => data.staff), []);
   const [opening, setOpening] = useState('');
   const [modal, setModal] = useState<null | 'cashbox' | 'close' | 'staff' | 'opening'>(null);
   const [viewing, setViewing] = useState<Shift | null>(null);
@@ -131,7 +134,12 @@ export default function ShiftPage() {
         {closed.length === 0 && <div className="empty">Закрытых смен пока нет</div>}
         {closed.map((x) => (
           <div key={x.id} className="card click row" onClick={() => setViewing(x)}>
-            <span className="shift-avatar" aria-hidden="true">{x.openedByName.trim().charAt(0).toUpperCase() || '•'}</span>
+            {(() => {
+              const profile = avatars.data?.find((p) => p.id === x.openedByStaffId);
+              const photo = profile?.photoMini || profile?.photo;
+              return photo ? <img className="shift-avatar" src={photo} alt="" style={{ objectFit: 'contain', imageRendering: 'pixelated', background: 'transparent' }} />
+                : <span className="shift-avatar" aria-hidden="true">{x.openedByName.trim().charAt(0).toUpperCase() || '•'}</span>;
+            })()}
             <div className="grow">
               <div className="title">{fmtDateTime(x.openedAt)} — {fmtDateTime(x.closedAt as string)} · {x.openedByName}</div>
               <div className="sub">Продажи {rub(x.totals.sales)}{x.autoClosed ? ' · автозакрытие' : ''}</div>

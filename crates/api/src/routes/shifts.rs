@@ -120,6 +120,7 @@ pub struct ShiftView {
     #[serde(flatten)]
     pub shift: ShiftRow,
     pub opened_by_name: String,
+    pub opened_by_staff_id: Option<String>,
     pub staff: Vec<StaffView>,
     pub cashbox: Vec<CashboxView>,
     pub totals: ShiftTotals,
@@ -265,11 +266,11 @@ async fn totals(db: &mut PgConnection, org: Uuid, shift: &ShiftRow, end: DateTim
 async fn view(pool: &PgPool, org: Uuid, row: ShiftRow) -> AppResult<ShiftView> {
     let end = row.closed_at.unwrap_or_else(Utc::now);
     let t = totals(&mut *pool.acquire().await?, org, &row, end).await?;
-    let opened_by_name: String = sqlx::query_scalar("SELECT name FROM users WHERE id=$1")
+    let opener: Option<(String, Option<String>)> = sqlx::query_as("SELECT name, staff_external_id FROM users WHERE id=$1")
         .bind(row.opened_by)
         .fetch_optional(pool)
-        .await?
-        .unwrap_or_else(|| "Сотрудник".into());
+        .await?;
+    let (opened_by_name, opened_by_staff_id) = opener.unwrap_or_else(|| ("Сотрудник".into(), None));
     let staff = sqlx::query_as::<_, StaffView>(
         "SELECT ss.shift_id, ss.user_id, u.name, ss.added_at FROM shift_staff ss JOIN users u ON u.id = ss.user_id \
          WHERE ss.shift_id=$1 ORDER BY ss.added_at",
@@ -284,7 +285,7 @@ async fn view(pool: &PgPool, org: Uuid, row: ShiftRow) -> AppResult<ShiftView> {
     .bind(row.id)
     .fetch_all(pool)
     .await?;
-    Ok(ShiftView { shift: row, opened_by_name, staff, cashbox, totals: t })
+    Ok(ShiftView { shift: row, opened_by_name, opened_by_staff_id, staff, cashbox, totals: t })
 }
 
 async fn fetch_rows(pool: &PgPool, org: Uuid, id: Option<Uuid>, q: &ListQuery) -> AppResult<Vec<ShiftRow>> {
