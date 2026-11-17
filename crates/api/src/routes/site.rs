@@ -43,7 +43,28 @@ const VIEWER_PERMS: &[&str] = &[
 ];
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/sync", post(sync)).route("/sales", get(sales)).route("/clients", get(clients))
+    Router::new().route("/sync", post(sync)).route("/sales", get(sales)).route("/clients", get(clients)).route("/cashbox", get(site_cashbox))
+}
+
+async fn site_cashbox(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<SalesQuery>) -> AppResult<Json<Value>> {
+    super::auth::check_site_secret(&headers)?;
+    let from = NaiveDate::parse_from_str(&q.from, "%Y-%m-%d").map_err(|_| AppError::BadRequest("Неверная дата начала".into()))?;
+    let to = NaiveDate::parse_from_str(&q.to, "%Y-%m-%d").map_err(|_| AppError::BadRequest("Неверная дата конца".into()))?;
+    if to <= from || (to - from).num_days() > 366 { return Err(AppError::BadRequest("Неверный период".into())); }
+    let rows = sqlx::query(
+        "SELECT t.id, s.id AS shift_id, st.external_id AS branch_id, (s.opened_at AT TIME ZONE 'Europe/Moscow')::date AS date, \
+                t.amount::float8 AS amount, t.comment, t.created_at \
+         FROM cashbox_transactions t JOIN shifts s ON s.id=t.shift_id \
+         JOIN stores st ON st.id=s.store_id JOIN organizations o ON o.id=t.organization_id \
+         WHERE o.external_id='wow-my-eyes' AND (s.opened_at AT TIME ZONE 'Europe/Moscow')::date >= $1 \
+           AND (s.opened_at AT TIME ZONE 'Europe/Moscow')::date < $2 ORDER BY t.created_at DESC"
+    ).bind(from).bind(to).fetch_all(&state.pool).await?;
+    Ok(Json(json!({"rows": rows.iter().map(|r| json!({
+        "id": r.get::<Uuid,_>("id"), "shiftId": r.get::<Uuid,_>("shift_id"),
+        "branchId": r.get::<String,_>("branch_id"), "date": r.get::<NaiveDate,_>("date"),
+        "amount": (r.get::<f64,_>("amount") * 100.0).round() as i64,
+        "comment": r.get::<String,_>("comment"), "createdAt": r.get::<chrono::DateTime<chrono::Utc>,_>("created_at")
+    })).collect::<Vec<_>>() })))
 }
 
 #[derive(Serialize, sqlx::FromRow)]
