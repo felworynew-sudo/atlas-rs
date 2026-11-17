@@ -142,9 +142,9 @@ export default function ShiftPage() {
             })()}
             <div className="grow">
               <div className="title">{fmtDateTime(x.openedAt)} — {fmtDateTime(x.closedAt as string)} · {x.openedByName}</div>
-              <div className="sub">Продажи {rub(x.totals.sales)}{x.autoClosed ? ' · автозакрытие' : ''}</div>
+              <div className="sub">{x.diff === null ? 'Без сверки кассы' : `Расхождение кассы ${x.diff > 0 ? '+' : ''}${rub(x.diff)}`}{x.autoClosed ? ' · автозакрытие' : ''}</div>
             </div>
-            <span className={(x.diff ?? 0) < 0 ? 'price low' : 'price'}>{x.diff === null ? '' : rub(x.diff)}</span>
+            <span className="price">{rub(x.totals.sales)}</span>
           </div>
         ))}
       </main>
