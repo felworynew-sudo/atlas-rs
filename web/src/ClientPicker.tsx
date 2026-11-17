@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 import { api, ApiError, type Client } from './api';
 
-function normalizedPhone(input: string) {
+export function normalizedPhone(input: string) {
   let digits = input.replace(/\D/g, '');
   if (digits.length === 10 && !input.trim().startsWith('+')) digits = '7' + digits;
   if (digits.length === 11 && digits.startsWith('8') && !input.trim().startsWith('+')) digits = '7' + digits.slice(1);
   return digits.length >= 10 && digits.length <= 15 ? '+' + digits : '';
 }
 
-export function ClientPicker({ client, onChange, onPending }: {
+export function ClientPicker({ client, onChange, onPending, onDraft }: {
   client: Client | null;
   onChange: (client: Client | null) => void;
   onPending: (pending: boolean) => void;
+  onDraft?: (draft: { phone: string; name: string }) => void;
 }) {
   const [query, setQuery] = useState('');
   const [found, setFound] = useState<Client[]>([]);
@@ -20,6 +21,8 @@ export function ClientPicker({ client, onChange, onPending }: {
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const draft = { phone: normalizedPhone(adding ? phone : query), name: adding ? name.trim() : '' };
+  useEffect(() => { onDraft?.(draft); }, [draft.phone, draft.name, onDraft]);
   useEffect(() => {
     const value = query.trim();
     if (value.length < 2) { setFound([]); return; }
@@ -98,6 +101,7 @@ export function ClientPicker({ client, onChange, onPending }: {
             }}>Новый клиент</button>
           </div>
           {found.map((c) => <button key={c.id} className="btn light" type="button" onClick={() => pick(c)}>{c.name} · {c.phone}</button>)}
+          {draft.phone && !found.some((c) => normalizedPhone(c.phone) === draft.phone) && <p className="sub">Если это новый номер, клиент создастся при сохранении чека. Имя можно добавить позже.</p>}
         </>
       )}
     </section>

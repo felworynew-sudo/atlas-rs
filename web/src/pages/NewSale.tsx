@@ -1,9 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type PriceType, type Category, type Client, type ListItem, type Product, type Sale, type SavedCart, type StockRow } from '../api';
+import { api, ApiError, type PriceType, type Category, type Client, type ListItem, type Product, type Sale, type SavedCart, type StockRow } from '../api';
 import { Icon } from '../Icon';
 import { MethodPixelIcon, paymentAppearance } from '../MethodPixelIcon';
-import { ClientPicker } from '../ClientPicker';
+import { ClientPicker, normalizedPhone } from '../ClientPicker';
 import { change, num, rub, saleTotals, type CartLine, type Discount } from '../money';
 import { useSession } from '../session';
 import { Header, Modal, Spinner, useLoad, useMedia, useToast } from '../ui';
@@ -41,6 +41,7 @@ export default function NewSale() {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [client, setClient] = useState<Client | null>(null);
   const [clientPending, setClientPending] = useState(false);
+  const [clientDraft, setClientDraft] = useState({ phone: '', name: '' });
   const [discount, setDiscount] = useState<Discount>({ type: 'none' });
   const [purchaseId, setPurchaseId] = useState<string | null>(null);
   const [paymentId, setPaymentId] = useState<string | null>(null);
@@ -142,6 +143,7 @@ export default function NewSale() {
     setDeliveryPhone('');
     setClient(null);
     setClientPending(false);
+    setClientDraft({ phone: '', name: '' });
     setDiscount({ type: 'none' });
     setReceived('');
     setError(null);
@@ -156,15 +158,31 @@ export default function NewSale() {
   }
 
   async function doCheckout(confirmed: boolean) {
-    if (clientPending) return;
+    if (clientPending && !clientDraft.phone) { setError('Укажите полный телефон клиента'); return; }
     setBusy(true);
     setError(null);
     try {
+      let saleClient = client;
+      if (!saleClient && clientDraft.phone) {
+        const find = async () => (await api<Client[]>('/clients', { query: { search: clientDraft.phone } }))
+          .find((c) => normalizedPhone(c.phone) === clientDraft.phone);
+        saleClient = await find() ?? null;
+        if (!saleClient) {
+          try {
+            saleClient = await api<Client>('/clients', { body: { name: clientDraft.name || `Клиент ${clientDraft.phone.slice(-4)}`, phone: clientDraft.phone } });
+          } catch (e) {
+            if (!(e instanceof ApiError) || e.status !== 409) throw e;
+            saleClient = await find() ?? null;
+            if (!saleClient) throw e;
+          }
+        }
+        setClient(saleClient);
+      }
       const sale = await api<Sale>('/sales', {
         body: {
           storeId,
           allowUnavailable: confirmed || undefined,
-          clientId: client?.id,
+          clientId: saleClient?.id,
           paymentMethodId: payment?.id,
           priceTypeId: effectiveType ?? undefined,
           secondPaymentMethodId: second?.id,
@@ -276,7 +294,7 @@ export default function NewSale() {
         )}
       </div>
 
-      {s.can('client.card') && <ClientPicker client={client} onChange={setClient} onPending={setClientPending} />}
+      {s.can('client.card') && <ClientPicker client={client} onChange={setClient} onPending={setClientPending} onDraft={setClientDraft} />}
 
       <div className="chips">
         {(purchases.data ?? []).map((p) => (
