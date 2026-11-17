@@ -58,6 +58,7 @@ pub const ALL: &[Permission] = &[
     pm("shift.view", "Смена", Module::Shifts),
     pm("shift.edit_staff", "Редактирование сотрудников в смене / рабочих часов других", Module::Shifts),
     pm("shift.edit_data", "Редактирование данных в смене", Module::Shifts),
+    pm("shift.edit_old", "Правка закрытых смен старше недели", Module::Shifts),
     pm("salary.view", "Зарплата", Module::Salary),
     pm("salary.view_others", "Просмотр зарплат других сотрудников", Module::Salary),
     p("reports.home_stats", "Просмотр статистики продаж на главном экране"),

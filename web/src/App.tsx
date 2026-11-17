@@ -27,6 +27,7 @@ import ProfitStats from './pages/ProfitStats';
 import Reports from './pages/Reports';
 import Salary from './pages/Salary';
 import ShiftPage from './pages/ShiftPage';
+import ShiftOrders from './pages/ShiftOrders';
 import RevisionForm from './pages/RevisionForm';
 import RevisionStats from './pages/RevisionStats';
 import SalesStats from './pages/SalesStats';
@@ -71,6 +72,7 @@ export default function App() {
         <Route path="/writeoffs" element={<Writeoffs />} />
         <Route path="/writeoff/new" element={<WriteoffForm />} />
         <Route path="/shift" element={<ShiftPage />} />
+        <Route path="/shift/:id/orders" element={<ShiftOrders />} />
         <Route path="/salary" element={<Salary />} />
         <Route path="/checklist" element={<Checklist />} />
         <Route path="/clients" element={<Clients />} />

@@ -133,7 +133,7 @@ export default function ShiftPage() {
         </div>
         {closed.length === 0 && <div className="empty">Закрытых смен пока нет</div>}
         {closed.map((x) => (
-          <div key={x.id} className="card click row" onClick={() => setViewing(x)}>
+          <div key={x.id} className="card click row" onClick={() => nav(`/shift/${x.id}/orders`)}>
             {(() => {
               const profile = avatars.data?.find((p) => p.id === x.openedByStaffId);
               const photo = profile?.photoMini || profile?.photo;
@@ -145,6 +145,7 @@ export default function ShiftPage() {
               <div className="sub">{x.diff === null ? 'Без сверки кассы' : `Расхождение кассы ${x.diff > 0 ? '+' : ''}${rub(x.diff)}`}{x.autoClosed ? ' · автозакрытие' : ''}</div>
             </div>
             <span className="price">{rub(x.totals.sales)}</span>
+            <button type="button" className="btn light inline" onClick={(event) => { event.stopPropagation(); setViewing(x); }}>Отчёт</button>
           </div>
         ))}
       </main>

@@ -22,7 +22,7 @@ export function Spinner() {
   return <div className="spinner" role="status" aria-label="Загрузка" />;
 }
 
-export function Modal({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+export function Modal({ onClose, children, className = '' }: { onClose: () => void; children: ReactNode; className?: string }) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
@@ -30,7 +30,7 @@ export function Modal({ onClose, children }: { onClose: () => void; children: Re
   }, [onClose]);
   return (
     <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" role="dialog" aria-modal="true">
+      <div className={`modal ${className}`} role="dialog" aria-modal="true">
         <button className="close" aria-label="Закрыть" onClick={onClose}>
           <Icon name="close" size={16} />
         </button>

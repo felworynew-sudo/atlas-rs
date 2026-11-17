@@ -559,6 +559,24 @@ struct EditClosedDto {
     close: CloseDto,
 }
 
+/// Сколько дней после закрытия смену можно править без отдельного права.
+const CLOSED_EDIT_DAYS: i64 = 7;
+
+/// Правка закрытой смены: свежие (до недели) — по `shift.edit_data`,
+/// давние — только с отдельным правом `shift.edit_old`.
+pub fn ensure_closed_shift_editable(ctx: &AuthContext, closed_at: Option<DateTime<Utc>>, what: &str) -> AppResult<()> {
+    let Some(closed_at) = closed_at else {
+        return Err(AppError::BadRequest(format!("Эта смена ещё открыта — {what} доступно только в закрытой смене")));
+    };
+    let days = (Utc::now() - closed_at).num_days();
+    if days >= CLOSED_EDIT_DAYS && !ctx.can("shift.edit_old") {
+        return Err(AppError::ForbiddenWithReason(format!(
+            "Смена закрыта {days} дн. назад — править смены старше недели может только сотрудник с правом «Правка закрытых смен старше недели»"
+        )));
+    }
+    Ok(())
+}
+
 async fn write_closed_totals(db: &mut PgConnection, org: Uuid, row: &ShiftRow, end: DateTime<Utc>, actual: f64, by_method: &[MethodActual], comment: &str) -> AppResult<()> {
     let t = totals(db, org, row, end).await?;
     let (diff, details) = close_values(&t, actual, by_method)?;
@@ -577,6 +595,7 @@ async fn edit_closed(State(s): State<AppState>, ctx: AuthContext, Path(id): Path
     let mut row = lock_shift(&mut tx, ctx.org_id, id).await?;
     check_store(&s.pool, &ctx, row.store_id).await?;
     let end = row.closed_at.ok_or_else(|| AppError::BadRequest("Эта смена ещё открыта".into()))?;
+    ensure_closed_shift_editable(&ctx, row.closed_at, "исправление данных")?;
     if row.revision != dto.revision {
         return Err(AppError::Conflict("Смена изменилась. Заново откройте её из истории перед сохранением".into()));
     }

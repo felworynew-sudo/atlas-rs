@@ -34,7 +34,7 @@ export function SaleEntry({ storeId, day, sale, closedShift, onSaved, onCancel }
   const [comment, setComment] = useState(sale?.comment ?? '');
   const [kind, setKind] = useState(sale?.orderKind || 'Другое');
   const [payment, setPayment] = useState(sale?.paymentMethodId ?? '');
-  const shiftStaff = closedShift?.staff ?? [];
+  const shiftStaff = (closedShift?.staff ?? []).filter((person) => session.can('shift.edit_data') || person.userId === session.user?.id);
   const [sellerId, setSellerId] = useState(sale?.userId
     ?? shiftStaff.find((person) => person.userId === session.user?.id)?.userId ?? shiftStaff[0]?.userId ?? '');
   const [client, setClient] = useState<Client | null>(null);

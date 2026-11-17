@@ -75,6 +75,7 @@ pub struct SaleView {
     pub delivery_phone: String,
     pub delivery_price: f64,
     pub order_id: Option<Uuid>,
+    pub shift_id: Option<Uuid>,
     #[sqlx(skip)]
     pub items: Vec<SaleItemView>,
 }
@@ -92,12 +93,13 @@ const SELECT_SALES: &str = "SELECT s.id, s.store_id, s.user_id, u.name AS user_n
        AND s.second_payment_method_id IS NULL \
        AND NOT EXISTS (SELECT 1 FROM sale_returns r WHERE r.sale_id=s.id)) AS can_edit_amounts, \
      s.punch_card_reduction::float8 AS punch_card_reduction, s.delivery_address, s.delivery_phone, \
-     s.delivery_price::float8 AS delivery_price, s.order_id \
+     s.delivery_price::float8 AS delivery_price, s.order_id, s.shift_id \
      FROM sales s JOIN users u ON u.id = s.user_id \
      WHERE s.organization_id=$1 AND s.deleted_at IS NULL \
        AND ($2::uuid IS NULL OR s.id=$2) AND ($3::uuid IS NULL OR s.store_id=$3) \
        AND ($4::timestamptz IS NULL OR s.sale_date >= $4) AND ($5::timestamptz IS NULL OR s.sale_date < $5) \
        AND ($6::uuid IS NULL OR s.client_id=$6) AND ($7::uuid IS NULL OR s.user_id=$7) \
+       AND ($8::uuid IS NULL OR s.shift_id=$8) \
      ORDER BY s.sale_date DESC, s.created_at DESC LIMIT 500";
 
 #[derive(Deserialize, Default)]
@@ -108,6 +110,7 @@ pub struct ListQuery {
     pub to: Option<DateTime<Utc>>,
     pub client_id: Option<Uuid>,
     pub user_id: Option<Uuid>,
+    pub shift_id: Option<Uuid>,
 }
 
 pub async fn fetch_sales(pool: &PgPool, org: Uuid, id: Option<Uuid>, q: &ListQuery) -> AppResult<Vec<SaleView>> {
@@ -119,6 +122,7 @@ pub async fn fetch_sales(pool: &PgPool, org: Uuid, id: Option<Uuid>, q: &ListQue
         .bind(q.to)
         .bind(q.client_id)
         .bind(q.user_id)
+        .bind(q.shift_id)
         .fetch_all(pool)
         .await?;
     let ids: Vec<Uuid> = sales.iter().map(|s| s.id).collect();
@@ -400,7 +404,7 @@ pub async fn create(State(s): State<AppState>, ctx: AuthContext, Json(dto): Json
     let mut tx = s.pool.begin().await?;
     let sale_date = dto.sale_date.unwrap_or_else(Utc::now);
     let seller_id = dto.user_id.unwrap_or(ctx.user_id);
-    if dto.shift_id.is_some() {
+    if dto.shift_id.is_some() && seller_id != ctx.user_id {
         ctx.require("shift.edit_data")?;
     } else if seller_id != ctx.user_id {
         return Err(AppError::Forbidden);
@@ -677,6 +681,17 @@ async fn update(
         return Err(AppError::BadRequest("Для продажи, связанной со сменой, можно изменить время в пределах того же дня".into()));
     }
     let seller_id = dto.user_id.unwrap_or(sale.user_id);
+    // Смена берётся из самой продажи: правку в старой закрытой смене ограничиваем всегда.
+    if let Some(shift) = shift_id {
+        let closed_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT closed_at FROM shifts WHERE id=$1 AND organization_id=$2",
+        )
+        .bind(shift).bind(ctx.org_id).fetch_optional(&mut *tx).await?
+        .flatten();
+        if closed_at.is_some() {
+            crate::routes::shifts::ensure_closed_shift_editable(&ctx, closed_at, "исправление заказов")?;
+        }
+    }
     let new_seller = if seller_id != sale.user_id {
         Some(sqlx::query_as::<_, SaleStaff>(SELECT_SALE_STAFF)
             .bind(ctx.org_id).bind(sale.store_id).bind(seller_id).fetch_optional(&mut *tx).await?

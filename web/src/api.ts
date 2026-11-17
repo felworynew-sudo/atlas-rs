@@ -294,6 +294,7 @@ export interface Sale {
   total: number;
   returnedAmount: number;
   saleDate: string;
+  shiftId?: string | null;
   items: SaleItem[];
 }
 export interface SavedCart { id: string; storeId: string; name: string; payload: { lines?: unknown[]; clientId?: string | null } }

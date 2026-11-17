@@ -14,6 +14,9 @@ pub enum AppError {
     Unauthorized(String),
     #[error("Нет доступа")]
     Forbidden,
+    /// Отказ с объяснением, почему именно нельзя (права, сроки).
+    #[error("{0}")]
+    ForbiddenWithReason(String),
     #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
@@ -28,6 +31,7 @@ impl AppError {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
             AppError::Forbidden => StatusCode::FORBIDDEN,
+            AppError::ForbiddenWithReason(_) => StatusCode::FORBIDDEN,
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -39,6 +43,7 @@ impl AppError {
             AppError::BadRequest(_) => "Bad Request",
             AppError::Unauthorized(_) => "Unauthorized",
             AppError::Forbidden => "Forbidden",
+            AppError::ForbiddenWithReason(_) => "Forbidden",
             AppError::NotFound(_) => "Not Found",
             AppError::Conflict(_) => "Conflict",
             AppError::Internal(_) => "Internal Server Error",
