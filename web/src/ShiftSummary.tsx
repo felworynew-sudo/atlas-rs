@@ -25,6 +25,11 @@ export function ShiftSummary({ shift, onEditOpening, canEditOpening }: {
   const t = shift.totals;
   const closed = !!shift.closedAt;
   const diff = shift.diff ?? 0;
+  // Разделяем расхождение по кассе и по безналичным способам: иначе ошибка в терминале
+  // выглядит как «недосдача наличных», хотя касса сошлась (реальный случай 21.11.2026).
+  const cashDiff = Math.round(((shift.actualCash ?? 0) - t.expectedCash) * 100) / 100;
+  const closeDetails = shift.closeDetails ?? [];
+  const methodDiff = (id: string) => closeDetails.find((d) => d.paymentMethodId === id);
   const noncash = t.byMethod.filter((m) => m.kind !== 'cash' && (m.sales !== 0 || m.returns !== 0));
   const movements = cashboxLines(shift);
   const nonCashTotal = t.nonCashSales - noncash.reduce((sum, m) => sum + m.returns, 0);
@@ -61,7 +66,9 @@ export function ShiftSummary({ shift, onEditOpening, canEditOpening }: {
       <Line bold label={closed ? 'Должно было быть' : 'Должно быть сейчас'} value={rub(t.expectedCash)} />
       {closed && <>
         <Line bold label="Фактически сдали" value={rub(shift.actualCash ?? 0)} />
-        {diff !== 0 && <Line bold label={diff < 0 ? 'Недосдача' : 'Излишек'} value={rub(Math.abs(diff))} tone={diff < 0 ? 'bad' : 'good'} />}
+        {cashDiff !== 0 && <Line bold label={cashDiff < 0 ? 'Недосдача по кассе' : 'Излишек по кассе'} value={rub(Math.abs(cashDiff))} tone={cashDiff < 0 ? 'bad' : 'good'} />}
+        {diff !== 0 && cashDiff === 0 && <Line label="Расхождение по кассе" value="нет" tone="good" />}
+        {diff !== 0 && <Line label="Итого расхождение" value={`${diff < 0 ? '−' : '+'}${rub(Math.abs(diff))}`} tone={diff < 0 ? 'bad' : 'good'} />}
         {diff === 0 && <Line label="Расхождение" value="нет" tone="good" />}
       </>}
     </div>
@@ -76,9 +83,16 @@ export function ShiftSummary({ shift, onEditOpening, canEditOpening }: {
 
     {noncash.length > 0 && <div className="card">
       <div className="day" style={{ marginTop: 0 }}>Безналичные оплаты</div>
-      {noncash.map((m) => (
-        <Line key={m.paymentMethodId} label={m.name} value={rub(m.sales - m.returns)} />
-      ))}
+      {noncash.map((m) => {
+        const d = methodDiff(m.paymentMethodId);
+        const expected = d ? d.expected : m.sales - m.returns;
+        const actual = d ? d.actual : null;
+        const bad = d ? Math.abs(d.diff) > 0.005 : false;
+        return <Line key={m.paymentMethodId}
+          label={d ? `${m.name} · факт ${rub(actual ?? 0)} (расчёт ${rub(expected)})` : m.name}
+          value={d && bad ? `${d.diff < 0 ? '−' : '+'}${rub(Math.abs(d.diff))}` : rub(expected)}
+          tone={bad ? (d!.diff < 0 ? 'bad' : 'good') : undefined} />;
+      })}
     </div>}
 
     <button className="link" onClick={() => setDetails((on) => !on)}>{details ? 'Скрыть детали' : 'Показать детали'}</button>
