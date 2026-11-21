@@ -94,7 +94,7 @@ export function SaleEntry({ storeId, day, sale, closedShift, onSaved, onCancel }
         <label className="field"><span>Тип заказа</span><select value={kind} onChange={(e) => setKind(e.target.value)}>
           {(ORDER_KINDS.includes(kind) ? ORDER_KINDS : [...ORDER_KINDS, kind]).map((x) => <option key={x}>{x}</option>)}
         </select></label>
-        <label className="field"><span>Оплата</span><select disabled={!canEditAmounts || payments.loading} value={chosenPayment} onChange={(e) => setPayment(e.target.value)}>
+        <label className="field"><span>Оплата</span><select disabled={payments.loading} value={chosenPayment} onChange={(e) => setPayment(e.target.value)}>
           <option value="">Не выбрано</option>
           {chosenPayment && !methods.some((m) => m.id === chosenPayment) && <option value={chosenPayment}>Текущий способ</option>}
           {methods.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -113,7 +113,7 @@ export function SaleEntry({ storeId, day, sale, closedShift, onSaved, onCancel }
       </div>
       <label className="field"><span>Комментарий</span><textarea rows={2} value={comment} onChange={(e) => setComment(e.target.value)} /></label>
       {!sale && session.can('client.card') && <ClientPicker client={client} onChange={setClient} onPending={setClientPending} />}
-      {!canEditAmounts && <p className="sub">Можно исправить сотрудника, время, кадры, комментарий и тип заказа. Сумма и состав связаны с расчётом чека.</p>}
+      {!canEditAmounts && <p className="sub">Можно исправить сотрудника, время, кадры, комментарий, тип заказа и способ оплаты. Сумма и состав связаны с расчётом чека.</p>}
       {canEditAmounts && <div className="sale-entry-fields">
         <label className="field"><span>Найти в каталоге</span><input type="search" value={term} onChange={(e) => setTerm(e.target.value)} /></label>
         <label className="field"><span>Добавить позицию</span><select value="" onChange={(e) => {
