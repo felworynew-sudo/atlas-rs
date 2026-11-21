@@ -14,6 +14,18 @@ const weekdays = ['воскресенье', 'понедельник', 'втор�
 const dayTitle = (d: Date) => `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} ${weekdays[d.getDay()]}`;
 const time = (d: Date) => d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
 
+/** 1 продажа / 2 продажи / 5 продаж */
+const plural = (n: number, forms: [string, string, string]) => {
+  const a = Math.abs(n) % 100;
+  const b = a % 10;
+  if (a > 10 && a < 20) return forms[2];
+  if (b > 1 && b < 5) return forms[1];
+  if (b === 1) return forms[0];
+  return forms[2];
+};
+
+const saleNet = (s: Sale) => s.total - (s.returnedAmount || 0);
+
 export default function SalesHistory() {
   const s = useSession();
   const nav = useNavigate();
@@ -27,7 +39,6 @@ export default function SalesHistory() {
   );
   const payName = (id: string | null) => (pay.data ?? []).find((p) => p.id === id)?.name ?? '—';
   const storeName = (id: string) => s.stores.find((x) => x.id === id)?.name ?? '';
-  const salesTotal = (sales.data ?? []).reduce((sum, sale) => sum + sale.total, 0);
 
   const groups = useMemo(() => {
     const m = new Map<string, Sale[]>();
@@ -37,6 +48,25 @@ export default function SalesHistory() {
     }
     return [...m.entries()];
   }, [sales.data]);
+
+  // Итоги: за каждый день и за весь выбранный период. Возвраты вычитаются.
+  const period = useMemo(() => {
+    const list = sales.data ?? [];
+    return {
+      count: list.length,
+      returns: list.reduce((sum, sale) => sum + (sale.returnedAmount || 0), 0),
+      total: list.reduce((sum, sale) => sum + saleNet(sale), 0),
+    };
+  }, [sales.data]);
+
+  const payBreakdown = (list: Sale[]) => {
+    const m = new Map<string, number>();
+    for (const sale of list) {
+      const name = payName(sale.paymentMethodId);
+      m.set(name, (m.get(name) ?? 0) + saleNet(sale));
+    }
+    return [...m.entries()].filter(([, sum]) => Math.abs(sum) > 0.001).sort((a, b) => b[1] - a[1]);
+  };
 
   return (
     <>
@@ -52,27 +82,57 @@ export default function SalesHistory() {
           {s.stores.map((st) => <button key={st.id} className={`chip${store === st.id ? ' active' : ''}`} onClick={() => setStore(st.id)}>{st.name}</button>)}
         </div>
         <button className="link" onClick={sales.reload}>Обновить</button>
-        {!sales.loading && <div className="card"><b>Всего: {rub(salesTotal)}</b><div className="sub">{(sales.data ?? []).length} чеков за выбранный период</div></div>}
 
         {sales.loading && <Spinner />}
         {sales.error && <div className="error">{sales.error}</div>}
         {!sales.loading && groups.length === 0 && <div className="empty">Ничего не найдено</div>}
-        {groups.map(([day, list]) => (
-          <section key={day}>
-            <div className="day">{day}</div>
-            {list.map((sale) => (
-              <div key={sale.id} className="card click" onClick={() => nav(`/sale/${sale.id}`)}>
-                <div className="row" style={{ justifyContent: 'space-between' }}>
-                  <span className="title">{time(new Date(sale.saleDate))} · {payName(sale.paymentMethodId)}</span>
-                  <span className="price">{rub(sale.total)}</span>
-                </div>
-                <div className="sub">{storeName(sale.storeId)} · {sale.userName}</div>
-                <div className="sub">{sale.items.map((i) => `${i.name} (${i.qty})`).join(', ')}</div>
-                {sale.returnedAmount > 0 && <div className="sub low">Возврат {rub(sale.returnedAmount)}</div>}
+
+        {!sales.loading && period.count > 0 && (
+          <div className="card" aria-label="Итого за период" style={{ background: 'rgba(201,162,75,0.08)', borderColor: 'rgba(201,162,75,0.35)' }}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <span className="title">{groups.length > 1 ? 'Итого за период' : 'Итого за день'}</span>
+              <span className="price">{rub(period.total)}</span>
+            </div>
+            <div className="sub">
+              {period.count} {plural(period.count, ['продажа', 'продажи', 'продаж'])}
+              {period.returns > 0 ? ` · возвраты ${rub(period.returns)}` : ''}
+            </div>
+          </div>
+        )}
+
+        {groups.map(([day, list]) => {
+          const total = list.reduce((sum, sale) => sum + saleNet(sale), 0);
+          const returns = list.reduce((sum, sale) => sum + (sale.returnedAmount || 0), 0);
+          const breakdown = payBreakdown(list);
+          return (
+            <section key={day}>
+              <div className="day" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+                <span>{day}</span>
+                <span className="sub" style={{ fontWeight: 600, color: 'var(--gold, #c9a24b)' }}>
+                  Итого {rub(total)}
+                  <span style={{ fontWeight: 400, opacity: 0.75 }}> · {list.length} {plural(list.length, ['продажа', 'продажи', 'продаж'])}</span>
+                </span>
               </div>
-            ))}
-          </section>
-        ))}
+              {(breakdown.length > 0 || returns > 0) && (
+                <div className="sub" style={{ marginTop: -4, marginBottom: 10 }}>
+                  {breakdown.map(([name, sum]) => `${name} ${rub(sum)}`).join(' · ')}
+                  {returns > 0 ? `${breakdown.length ? ' · ' : ''}возвраты ${rub(returns)}` : ''}
+                </div>
+              )}
+              {list.map((sale) => (
+                <div key={sale.id} className="card click" onClick={() => nav(`/sale/${sale.id}`)}>
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <span className="title">{time(new Date(sale.saleDate))} · {payName(sale.paymentMethodId)}</span>
+                    <span className="price">{rub(sale.total)}</span>
+                  </div>
+                  <div className="sub">{storeName(sale.storeId)} · {sale.userName}</div>
+                  <div className="sub">{sale.items.map((i) => `${i.name} (${i.qty})`).join(', ')}</div>
+                  {sale.returnedAmount > 0 && <div className="sub low">Возврат {rub(sale.returnedAmount)}</div>}
+                </div>
+              ))}
+            </section>
+          );
+        })}
       </main>
     </>
   );
