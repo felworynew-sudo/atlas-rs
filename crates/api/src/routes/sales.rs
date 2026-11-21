@@ -647,8 +647,8 @@ async fn update(
     let sale = created_view(&s.pool, ctx.org_id, id).await?.0;
     check_store(&s.pool, &ctx, sale.store_id).await?;
     let payment_changed = dto.payment_method_id != sale.payment_method_id;
-    if (payment_changed || dto.items.is_some()) && !sale.can_edit_amounts {
-        return Err(AppError::BadRequest("Сумму, позиции и оплату этого чека менять нельзя: есть возврат, скидка, бонусы или смешанная оплата".into()));
+    if dto.items.is_some() && !sale.can_edit_amounts {
+        return Err(AppError::BadRequest("Сумму и позиции этого чека менять нельзя: есть возврат, скидка, бонусы или смешанная оплата".into()));
     }
     if payment_changed {
         let payment = dto.payment_method_id.ok_or_else(|| AppError::BadRequest("Выберите способ оплаты".into()))?;

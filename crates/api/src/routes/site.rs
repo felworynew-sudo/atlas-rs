@@ -43,7 +43,105 @@ const VIEWER_PERMS: &[&str] = &[
 ];
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/sync", post(sync)).route("/sales", get(sales)).route("/clients", get(clients)).route("/cashbox", get(site_cashbox))
+    Router::new()
+        .route("/sync", post(sync))
+        .route("/sales", get(sales))
+        .route("/clients", get(clients))
+        .route("/cashbox", get(site_cashbox).post(site_cashbox_add))
+}
+
+/// Движение кассы, присланное сайтом (инкассация в дев-панели).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SiteCashboxDto {
+    /// id отчёта инкассации на сайте — защита от дублей при повторной отправке
+    external_id: String,
+    /// филиал сайта (external_id магазина)
+    branch_id: String,
+    /// рабочий день отчёта, YYYY-MM-DD
+    date: String,
+    /// со знаком: изъятие < 0, внесение > 0 (как в cashbox_transactions)
+    amount: f64,
+    comment: Option<String>,
+    /// сотрудник сайта (staffId) — по нему находим пользователя Атласа
+    staff_id: Option<String>,
+}
+
+/// Сайт присылает запись инкассации — она становится движением кассы смены.
+/// Операция привязывается к существующей смене этого филиала и рабочего дня.
+async fn site_cashbox_add(State(state): State<AppState>, headers: HeaderMap, Json(dto): Json<SiteCashboxDto>) -> AppResult<Json<Value>> {
+    super::auth::check_site_secret(&headers)?;
+    let external_id = dto.external_id.trim();
+    if external_id.is_empty() || external_id.len() > 80 {
+        return Err(AppError::BadRequest("Нет id отчёта инкассации".into()));
+    }
+    if !dto.amount.is_finite() || dto.amount == 0.0 {
+        return Err(AppError::BadRequest("Сумма должна быть не равна нулю".into()));
+    }
+    let day = NaiveDate::parse_from_str(dto.date.trim(), "%Y-%m-%d").map_err(|_| AppError::BadRequest("Дата — YYYY-MM-DD".into()))?;
+
+    let (org_id,): (Uuid,) = sqlx::query_as("SELECT id FROM organizations WHERE external_id='wow-my-eyes'")
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Организация сайта ещё не заведена".into()))?;
+
+    let store: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, timezone FROM stores WHERE organization_id=$1 AND external_id=$2",
+    )
+    .bind(org_id)
+    .bind(dto.branch_id.trim())
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((store_id, tz)) = store else {
+        return Err(AppError::NotFound("Такой филиал в CRM не заведён".into()));
+    };
+
+    // Смена этого филиала на рабочий день: по дате открытия в поясе филиала.
+    let shift: Option<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT id, opened_by FROM shifts WHERE organization_id=$1 AND store_id=$2 \
+           AND (opened_at AT TIME ZONE $3)::date = $4::date ORDER BY opened_at DESC LIMIT 1",
+    )
+    .bind(org_id).bind(store_id).bind(&tz).bind(day)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((shift_id, opener_id)) = shift else {
+        return Err(AppError::BadRequest("На эту дату в филиале нет смены — сначала откройте смену".into()));
+    };
+
+    // Сотрудник: у него на сайте есть staffId, в Атласе — staff_external_id.
+    let user_id: Option<(Uuid,)> = match dto.staff_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        Some(sid) => sqlx::query_as("SELECT id FROM users WHERE organization_id=$1 AND staff_external_id=$2 LIMIT 1")
+            .bind(org_id).bind(sid).fetch_optional(&state.pool).await?,
+        None => None,
+    };
+    let user_id = match user_id {
+        Some((id,)) => id,
+        None => opener_id,
+    };
+
+    let mut tx = state.pool.begin().await?;
+    let inserted: Option<(Uuid,)> = sqlx::query_as(
+        "INSERT INTO cashbox_transactions (id, organization_id, shift_id, user_id, amount, comment, external_id, source) \
+         VALUES ($1,$2,$3,$4,$5::float8,$6,$7,'site') \
+         ON CONFLICT (organization_id, external_id) WHERE external_id IS NOT NULL DO NOTHING RETURNING id",
+    )
+    .bind(Uuid::new_v4()).bind(org_id).bind(shift_id).bind(user_id)
+    .bind(dto.amount)
+    .bind(dto.comment.clone().unwrap_or_default())
+    .bind(external_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    // Если отчёт внесли после закрытия смены, обновить сохранённые ожидание и
+    // расхождение. Для открытой смены refresh_closed_shift ничего не меняет.
+    super::shifts::refresh_closed_shift(&mut tx, org_id, shift_id).await?;
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "shiftId": shift_id,
+        "duplicate": inserted.is_none(),
+    })))
 }
 
 async fn site_cashbox(State(state): State<AppState>, headers: HeaderMap, Query(q): Query<SalesQuery>) -> AppResult<Json<Value>> {
