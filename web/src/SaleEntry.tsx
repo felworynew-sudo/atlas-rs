@@ -30,6 +30,10 @@ export function SaleEntry({ storeId, day, sale, closedShift, onSaved, onCancel }
   const initialTime = saleTime(sale ? new Date(sale.saleDate) : new Date());
   const [date, setDate] = useState(day);
   const [time, setTime] = useState(initialTime);
+  // Филиал, к которому относится продажа. При редактировании его можно сменить: продажа
+  // переносится в выбранный филиал (создаётся новая, старая удаляется — см. save()).
+  const [branch, setBranch] = useState(storeId);
+  const otherStores = session.stores.filter((store) => store.id !== storeId);
   const [frames, setFrames] = useState(sale?.frameNumbers ?? '');
   const [comment, setComment] = useState(sale?.comment ?? '');
   const [kind, setKind] = useState(sale?.orderKind || 'Другое');
@@ -65,6 +69,41 @@ export function SaleEntry({ storeId, day, sale, closedShift, onSaved, onCancel }
     const items = lines.map(({ productId, name, qty, price }) => ({ productId, name, qty: Number(qty), price: Number(price) }));
     const saleDate = sale && date === day && time === initialTime ? sale.saleDate : new Date(`${date}T${time}:00+03:00`).toISOString();
     const fields = { saleDate, frameNumbers: frames, comment, orderKind: kind, paymentMethodId: chosenPayment || null };
+
+    // Смена филиала: API не умеет менять store_id у продажи, поэтому переносим её как
+    // «создать в новом филиале → удалить в старом». Если удаление не удалось — удаляем новую,
+    // чтобы не осталось двух одинаковых продаж. Продажи с возвратами не переносим.
+    if (sale && branch !== storeId) {
+      if (sale.returnedAmount > 0) {
+        setError('Нельзя перенести продажу в другой филиал: по ней уже есть возврат.');
+        return;
+      }
+      const storeName = session.stores.find((store) => store.id === branch)?.name ?? branch;
+      if (!window.confirm(`Перенести продажу в филиал «${storeName}»?\n\nБудет создана новая продажа в этом филиале, старая удалена. Номер продажи изменится.`)) {
+        return;
+      }
+      setBusy(true);
+      setError('');
+      try {
+        const created = await api<Sale>('/sales', { body: {
+          ...fields, storeId: branch, clientId: sale.clientId, items, idempotencyKey: crypto.randomUUID(),
+          userId: sellerId || sale.userId,
+        } });
+        try {
+          await api(`/sales/${sale.id}`, { method: 'DELETE' });
+        } catch (deleteError) {
+          await api(`/sales/${created.id}`, { method: 'DELETE' }).catch(() => {});
+          throw deleteError;
+        }
+        onSaved(created);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Не удалось перенести продажу в другой филиал');
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     setBusy(true);
     setError('');
     try {
@@ -90,6 +129,15 @@ export function SaleEntry({ storeId, day, sale, closedShift, onSaved, onCancel }
       <div className="sale-entry-fields">
         <label className="field"><span>Дата</span><input required readOnly={!!closedShift} type="date" value={date} onChange={(e) => setDate(e.target.value)} /></label>
         <label className="field"><span>Время (МСК)</span><input required type="time" value={time} onChange={(e) => setTime(e.target.value)} /></label>
+        {sale && otherStores.length > 0 && (
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span>Филиал</span>
+            <select value={branch} onChange={(e) => setBranch(e.target.value)}>
+              <option value={storeId}>{session.stores.find((store) => store.id === storeId)?.name ?? 'Текущий филиал'}</option>
+              {otherStores.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
+            </select>
+          </label>
+        )}
         <label className="field"><span>Кадры</span><input type="text" value={frames} maxLength={100} placeholder="9722–9716" onChange={(e) => setFrames(e.target.value)} /></label>
         <label className="field"><span>Тип заказа</span><select value={kind} onChange={(e) => setKind(e.target.value)}>
           {(ORDER_KINDS.includes(kind) ? ORDER_KINDS : [...ORDER_KINDS, kind]).map((x) => <option key={x}>{x}</option>)}

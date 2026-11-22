@@ -119,8 +119,12 @@ export default function SaleDetail() {
       </main>
 
       {editing && <Modal onClose={() => setEditing(false)}>
-        <SaleEntry sale={d} storeId={d.storeId} day={saleDay(new Date(d.saleDate))} onCancel={() => setEditing(false)} onSaved={() => {
-          setEditing(false); sale.reload(); say('Изменения сохранены');
+        <SaleEntry sale={d} storeId={d.storeId} day={saleDay(new Date(d.saleDate))} onCancel={() => setEditing(false)} onSaved={(saved) => {
+          setEditing(false);
+          // При переносе в другой филиал продажа получает новый id — открываем её.
+          if (saved.id !== d.id) nav(`/sales/${saved.id}`, { replace: true });
+          else sale.reload();
+          say('Изменения сохранены');
         }} />
       </Modal>}
 
