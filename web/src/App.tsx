@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import NewSale from './pages/NewSale';
@@ -54,6 +54,7 @@ export default function App() {
   if (!s.user) return <Login />;
   return (
     <div className="app">
+      <AssistantContext />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/new-sale" element={<NewSale />} />
@@ -115,3 +116,20 @@ function SiteLoginNeeded() {
   );
 }
 import SaleRegister from './pages/SaleRegister';
+
+/** Only route and clicked navigation label, never form values or client details. */
+function AssistantContext() {
+  const location = useLocation();
+  useEffect(() => {
+    if (!EMBEDDED) return;
+    window.parent.postMessage({ type: 'atlas:assistant-context', path: location.pathname }, window.location.origin);
+    const clicked = (event: MouseEvent) => {
+      const target = (event.target as Element | null)?.closest('button,a');
+      const label = target?.getAttribute('aria-label') || target?.getAttribute('title') || '';
+      if (label) window.parent.postMessage({ type: 'atlas:assistant-context', path: location.pathname, section: label.slice(0, 80) }, window.location.origin);
+    };
+    document.addEventListener('click', clicked);
+    return () => document.removeEventListener('click', clicked);
+  }, [location.pathname]);
+  return null;
+}

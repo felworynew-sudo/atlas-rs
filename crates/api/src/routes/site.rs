@@ -636,7 +636,50 @@ async fn sales(State(state): State<AppState>, headers: HeaderMap, Query(q): Quer
         });
     }
     rows.sort_by(|a, b| (a.date, &a.time, &a.id).cmp(&(b.date, &b.time, &b.id)));
-    Ok(Json(json!({ "rows": rows, "moneyUnit": "kopecks", "from": from, "to": to })))
+    // Позиции нужны зарплате, а не только объединённое название чека. Один запрос на весь
+    // период; количество относится к событию и делится между способами оплаты на сайте.
+    let sale_ids: Vec<Uuid> = rows.iter().map(|r| r.sale_id).collect();
+    let mut items: HashMap<Uuid, Vec<Value>> = HashMap::new();
+    let mut sale_staff: HashMap<Uuid, String> = HashMap::new();
+    for r in sqlx::query(
+        "SELECT si.sale_id, si.id, si.product_id, si.name, si.qty::float8, \
+         round(si.price*100)::int8, round(si.qty*si.price*100)::int8, \
+         round(s.total*100)::int8, si.returned_qty::float8, COALESCE(u.staff_external_id,'') \
+         FROM sale_items si JOIN sales s ON s.id=si.sale_id JOIN users u ON u.id=s.user_id \
+         WHERE s.organization_id=$1 AND si.sale_id=ANY($2)")
+        .bind(org_id).bind(&sale_ids).fetch_all(&state.pool).await? {
+        sale_staff.insert(r.try_get(0)?, r.try_get(9)?);
+        items.entry(r.try_get(0)?).or_default().push(json!({
+            "id": r.try_get::<Uuid,_>(1)?, "productId": r.try_get::<Option<Uuid>,_>(2)?,
+            "name": r.try_get::<String,_>(3)?, "qty": r.try_get::<f64,_>(4)?,
+            "price": r.try_get::<i64,_>(5)?, "gross": r.try_get::<i64,_>(6)?,
+            "saleTotal": r.try_get::<i64,_>(7)?, "returnedQty": r.try_get::<f64,_>(8)?
+        }));
+    }
+    let mut returned: HashMap<String, Vec<Value>> = HashMap::new();
+    for r in sqlx::query(
+        "SELECT ri.return_id, si.id, si.product_id, si.name, ri.qty::float8, \
+         round(si.price*100)::int8, round(ri.qty*si.price*100)::int8, round(sr.amount*100)::int8 \
+         FROM sale_return_items ri JOIN sale_items si ON si.id=ri.sale_item_id \
+         JOIN sale_returns sr ON sr.id=ri.return_id \
+         WHERE sr.organization_id=$1 AND sr.sale_id=ANY($2) AND sr.created_at >= $3 AND sr.created_at < $4")
+        .bind(org_id).bind(&sale_ids).bind(lo).bind(hi).fetch_all(&state.pool).await? {
+        let id: Uuid = r.try_get(0)?;
+        returned.entry(format!("return:{id}")).or_default().push(json!({
+            "id": r.try_get::<Uuid,_>(1)?, "productId": r.try_get::<Option<Uuid>,_>(2)?,
+            "name": r.try_get::<String,_>(3)?, "qty": -r.try_get::<f64,_>(4)?,
+            "price": r.try_get::<i64,_>(5)?, "gross": r.try_get::<i64,_>(6)?,
+            "saleTotal": r.try_get::<i64,_>(7)?, "returnedQty": 0
+        }));
+    }
+    let detailed: Vec<Value> = rows.iter().map(|r| {
+        let mut v = serde_json::to_value(r).expect("serializable money row");
+        v["payrollStaffId"] = if r.kind == "return" { json!(sale_staff.get(&r.sale_id)) } else { Value::Null };
+        v["items"] = if r.kind == "sale" { json!(items.get(&r.sale_id)) }
+            else if r.kind == "return" { json!(returned.get(&r.id)) } else { Value::Null };
+        v
+    }).collect();
+    Ok(Json(json!({ "rows": detailed, "moneyUnit": "kopecks", "from": from, "to": to })))
 }
 
 #[cfg(test)]
