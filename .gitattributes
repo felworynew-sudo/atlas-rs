@@ -1,0 +1,4 @@
+# Миграции 14–16 уже применены на сервере; их контрольные суммы считаются по LF.
+crates/api/migrations/0014_site_link.sql text eol=lf
+crates/api/migrations/0015_sale_register.sql text eol=lf
+crates/api/migrations/0016_site_cashbox_link.sql text eol=lf
